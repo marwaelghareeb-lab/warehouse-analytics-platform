@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 dotenv.config();
 
@@ -356,11 +357,337 @@ DATA INPUTS:
   }
 });
 
+// ==========================================
+// SUPABASE DATABASE & STORAGE ADMIN ENDPOINTS
+// ==========================================
+
+const getSupabaseAdmin = (): SupabaseClient | null => {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+  if (!url || !key || url.includes('your-project') || key.includes('your-anon') || key.includes('your-service')) {
+    return null;
+  }
+  try {
+    return createClient(url, key, {
+      auth: { persistSession: false },
+    });
+  } catch (err) {
+    console.error('Supabase initialization failed:', err);
+    return null;
+  }
+};
+
+let localSavedOutputs: any[] = [];
+
+// 1. Supabase Status & Connection Diagnostic
+app.get('/api/supabase/status', async (_req: Request, res: Response) => {
+  const url = process.env.SUPABASE_URL;
+  const hasAnonKey = !!process.env.SUPABASE_ANON_KEY && !process.env.SUPABASE_ANON_KEY.includes('your-anon');
+  const hasServiceKey = !!process.env.SUPABASE_SERVICE_ROLE_KEY && !process.env.SUPABASE_SERVICE_ROLE_KEY.includes('your-service');
+  const isConfigured = !!url && !url.includes('your-project') && (hasAnonKey || hasServiceKey);
+
+  if (!isConfigured) {
+    res.json({
+      isConfigured: false,
+      isConnected: false,
+      hasAnonKey,
+      hasServiceKey,
+      url: url || null,
+      message: 'Supabase credentials not configured in environment. Running in high-performance local store mode.',
+      savedOutputsCount: localSavedOutputs.length,
+    });
+    return;
+  }
+
+  const supabase = getSupabaseAdmin();
+  if (!supabase) {
+    res.json({
+      isConfigured: true,
+      isConnected: false,
+      hasAnonKey,
+      hasServiceKey,
+      message: 'Failed to initialize Supabase client with current credentials.',
+      savedOutputsCount: localSavedOutputs.length,
+    });
+    return;
+  }
+
+  try {
+    // Check tables
+    const tableChecks: Record<string, boolean> = {};
+    const tables = ['warehouses', 'uploaded_reports', 'item_master', 'stock_snapshots', 'consumption_data', 'receiving_data', 'expiry_data', 'analytical_outputs'];
+    
+    for (const table of tables) {
+      const { error } = await supabase.from(table).select('id', { count: 'exact', head: true }).limit(1);
+      tableChecks[table] = !error;
+    }
+
+    // Check bucket
+    let bucketExists = false;
+    try {
+      const { data: buckets } = await supabase.storage.listBuckets();
+      bucketExists = !!buckets?.some((b) => b.name === 'warehouse-reports');
+    } catch (e) {
+      // Storage permission error or not set up
+    }
+
+    const allTablesReady = Object.values(tableChecks).every(Boolean);
+
+    res.json({
+      isConfigured: true,
+      isConnected: true,
+      hasAnonKey,
+      hasServiceKey,
+      maskedUrl: url?.replace(/(https:\/\/[^.]+).*/, '$1.supabase.co'),
+      tableChecks,
+      allTablesReady,
+      bucketExists,
+      message: allTablesReady
+        ? 'Connected to Supabase. All database tables and RLS policies are active.'
+        : 'Connected to Supabase, but some tables have not been created yet. Execute the SQL schema from the Admin Panel.',
+      savedOutputsCount: localSavedOutputs.length,
+    });
+  } catch (err: any) {
+    res.json({
+      isConfigured: true,
+      isConnected: false,
+      hasAnonKey,
+      hasServiceKey,
+      error: err.message,
+      message: 'Failed to ping Supabase instance.',
+      savedOutputsCount: localSavedOutputs.length,
+    });
+  }
+});
+
+// 2. Save Analytical Output (Executive summary, KPI brief, FEFO risk matrix)
+app.post('/api/supabase/save-analysis', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const output = req.body;
+    if (!output || !output.title) {
+      res.status(400).json({ error: 'Title and output payload are required' });
+      return;
+    }
+
+    const savedRecord = {
+      id: output.id || `AO-${Date.now()}`,
+      title: output.title,
+      report_scope: output.report_scope || output.reportScope || 'All Warehouses',
+      reporting_period: output.reporting_period || output.reportingPeriod || '2026-10',
+      summary_type: output.summary_type || output.summaryType || 'executive_summary',
+      kpi_metrics: output.kpi_metrics || output.kpiMetrics || {},
+      executive_narrative: output.executive_narrative || output.executiveNarrative || '',
+      high_consumption_highlights: output.high_consumption_highlights || output.highConsumptionHighlights || [],
+      stock_risk_alerts: output.stock_risk_alerts || output.stockRiskAlerts || [],
+      fefo_action_points: output.fefo_action_points || output.fefoActionPoints || [],
+      procurement_recommendations: output.procurement_recommendations || output.procurementRecommendations || [],
+      generated_by: output.generated_by || output.generatedBy || 'Hospital AI Warehouse Engine',
+      created_at: new Date().toISOString(),
+    };
+
+    // Save locally first
+    localSavedOutputs = [savedRecord, ...localSavedOutputs.filter((o) => o.id !== savedRecord.id)];
+
+    // If Supabase is connected, persist to Postgres
+    const supabase = getSupabaseAdmin();
+    let supabasePersisted = false;
+    if (supabase) {
+      const { error } = await supabase.from('analytical_outputs').upsert(savedRecord);
+      if (!error) {
+        supabasePersisted = true;
+      } else {
+        console.warn('Failed to upsert analytical_outputs to Supabase (using local store):', error.message);
+      }
+    }
+
+    res.json({
+      success: true,
+      record: savedRecord,
+      persistedToSupabase: supabasePersisted,
+      message: supabasePersisted
+        ? 'Analytical output saved to Supabase PostgreSQL database.'
+        : 'Analytical output saved to local store (Supabase not configured or table missing).',
+    });
+  } catch (err: any) {
+    console.error('Error saving analytical output:', err);
+    res.status(500).json({ error: err.message || 'Failed to save analytical output' });
+  }
+});
+
+// 3. Fetch All Saved Analytical Outputs
+app.get('/api/supabase/analytical-outputs', async (_req: Request, res: Response) => {
+  const supabase = getSupabaseAdmin();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from('analytical_outputs')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (!error && data && data.length > 0) {
+      res.json({ success: true, outputs: data, source: 'supabase' });
+      return;
+    }
+  }
+
+  // Fallback to local store
+  res.json({ success: true, outputs: localSavedOutputs, source: 'local' });
+});
+
+// 4. Delete Saved Analytical Output
+app.delete('/api/supabase/analytical-outputs/:id', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  localSavedOutputs = localSavedOutputs.filter((o) => o.id !== id);
+
+  const supabase = getSupabaseAdmin();
+  if (supabase) {
+    await supabase.from('analytical_outputs').delete().eq('id', id);
+  }
+
+  res.json({ success: true, message: 'Analytical output deleted.' });
+});
+
+// 5. Batch Sync All Warehouse Data to Supabase
+app.post('/api/supabase/sync-all', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const supabase = getSupabaseAdmin();
+    if (!supabase) {
+      res.status(400).json({
+        success: false,
+        error: 'Supabase credentials not configured in environment. Add SUPABASE_URL and keys to environment.',
+      });
+      return;
+    }
+
+    const {
+      warehouses,
+      reports,
+      stockSnapshots,
+      consumptionRecords,
+      receivingRecords,
+      expiryRecords,
+      analyticalOutputs,
+    } = req.body;
+
+    const syncResults: Record<string, { attempted: number; succeeded: number; error?: string }> = {};
+
+    // 1. Warehouses
+    if (warehouses && Array.isArray(warehouses) && warehouses.length > 0) {
+      const records = warehouses.map((w: any) => ({
+        code: w.code,
+        name: w.name,
+        type: w.type || 'General',
+        location: w.location || '',
+      }));
+      const { error } = await supabase.from('warehouses').upsert(records, { onConflict: 'code' });
+      syncResults['warehouses'] = { attempted: records.length, succeeded: error ? 0 : records.length, error: error?.message };
+    }
+
+    // 2. Uploaded Reports
+    if (reports && Array.isArray(reports) && reports.length > 0) {
+      const records = reports.map((r: any) => ({
+        filename: r.filename,
+        report_type: r.reportType,
+        warehouse_code: r.warehouseCode,
+        reporting_period: r.reportingPeriod,
+        file_size_bytes: r.fileSizeBytes || 0,
+        total_rows_imported: r.totalRowsImported || 0,
+        validation_status: r.validationStatus || 'completed',
+        is_demo: !!r.isDemo,
+      }));
+      const { error } = await supabase.from('uploaded_reports').upsert(records);
+      syncResults['uploaded_reports'] = { attempted: records.length, succeeded: error ? 0 : records.length, error: error?.message };
+    }
+
+    // 3. Stock Snapshots
+    if (stockSnapshots && Array.isArray(stockSnapshots) && stockSnapshots.length > 0) {
+      const records = stockSnapshots.map((s: any) => ({
+        snapshot_date: s.snapshotDate || new Date().toISOString().split('T')[0],
+        reporting_period: s.reportingPeriod,
+        warehouse_code: s.warehouseCode,
+        item_code: s.itemCode,
+        quantity_on_hand: s.quantityOnHand,
+        unit_cost: s.unitCost,
+        stock_status: s.stockStatus || 'normal',
+      }));
+      const { error } = await supabase.from('stock_snapshots').upsert(records);
+      syncResults['stock_snapshots'] = { attempted: records.length, succeeded: error ? 0 : records.length, error: error?.message };
+    }
+
+    // 4. Consumption Records
+    if (consumptionRecords && Array.isArray(consumptionRecords) && consumptionRecords.length > 0) {
+      const records = consumptionRecords.map((c: any) => ({
+        transaction_date: c.transactionDate || new Date().toISOString().split('T')[0],
+        reporting_period: c.reportingPeriod,
+        warehouse_code: c.warehouseCode,
+        item_code: c.itemCode,
+        department: c.department,
+        quantity_consumed: c.quantityConsumed,
+        unit_cost: c.unitCost,
+        issue_voucher_number: c.issueVoucherNumber,
+      }));
+      const { error } = await supabase.from('consumption_data').upsert(records);
+      syncResults['consumption_data'] = { attempted: records.length, succeeded: error ? 0 : records.length, error: error?.message };
+    }
+
+    // 5. Receiving Records
+    if (receivingRecords && Array.isArray(receivingRecords) && receivingRecords.length > 0) {
+      const records = receivingRecords.map((r: any) => ({
+        grn_number: r.grnNumber,
+        pr_number: r.prNumber,
+        po_number: r.poNumber,
+        receipt_date: r.receiptDate || new Date().toISOString().split('T')[0],
+        reporting_period: r.reportingPeriod,
+        warehouse_code: r.warehouseCode,
+        item_code: r.itemCode,
+        supplier_name: r.supplierName,
+        quantity_received: r.quantityReceived,
+        unit_cost: r.unitCost,
+        inspection_status: r.inspectionStatus || 'Accepted',
+      }));
+      const { error } = await supabase.from('receiving_data').upsert(records);
+      syncResults['receiving_data'] = { attempted: records.length, succeeded: error ? 0 : records.length, error: error?.message };
+    }
+
+    // 6. Expiry Records
+    if (expiryRecords && Array.isArray(expiryRecords) && expiryRecords.length > 0) {
+      const records = expiryRecords.map((e: any) => ({
+        warehouse_code: e.warehouseCode,
+        item_code: e.itemCode,
+        batch_number: e.batchNumber,
+        expiry_date: e.expiryDate,
+        quantity_remaining: e.quantityRemaining,
+        unit_cost: e.unitCost,
+        reporting_period: '2026-10',
+      }));
+      const { error } = await supabase.from('expiry_data').upsert(records);
+      syncResults['expiry_data'] = { attempted: records.length, succeeded: error ? 0 : records.length, error: error?.message };
+    }
+
+    // 7. Analytical Outputs
+    if (analyticalOutputs && Array.isArray(analyticalOutputs) && analyticalOutputs.length > 0) {
+      const { error } = await supabase.from('analytical_outputs').upsert(analyticalOutputs);
+      syncResults['analytical_outputs'] = { attempted: analyticalOutputs.length, succeeded: error ? 0 : analyticalOutputs.length, error: error?.message };
+    }
+
+    res.json({
+      success: true,
+      syncResults,
+      message: 'All warehouse data and analytical outputs synchronized with Supabase.',
+    });
+  } catch (err: any) {
+    console.error('Batch sync error:', err);
+    res.status(500).json({ error: err.message || 'Failed to sync data with Supabase' });
+  }
+});
+
 // Vite middleware in dev or static files in production
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: false, // Prevents Vite from attempting WebSocket HMR in sandbox/preview
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);

@@ -13,6 +13,7 @@ import {
   Archive,
   Printer,
   Layers,
+  Database,
 } from 'lucide-react';
 import { storageService } from '../services/storageService';
 import { ExecutiveSummaryResponse, KPISummary } from '../types/warehouse';
@@ -241,6 +242,39 @@ ${aiSummary.procurementRecommendations.map((p) => `• ${p}`).join('\n')}
               >
                 {copied ? <Check className="w-3.5 h-3.5 text-teal-600" /> : <Copy className="w-3.5 h-3.5" />}
                 <span>{copied ? 'Copied' : 'Copy Text'}</span>
+              </button>
+
+              <button
+                onClick={async () => {
+                  if (!aiSummary) return;
+                  try {
+                    const res = await fetch('/api/supabase/save-analysis', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        title: aiSummary.summaryTitle,
+                        report_scope: storageService.getSelectedWarehouse(),
+                        reporting_period: aiSummary.reportingPeriod,
+                        summary_type: 'executive_summary',
+                        kpi_metrics: aiSummary.keyFacts,
+                        executive_narrative: aiSummary.executiveNarrative,
+                        high_consumption_highlights: aiSummary.highConsumptionHighlights,
+                        stock_risk_alerts: aiSummary.stockRiskAlerts,
+                        fefo_action_points: aiSummary.fefoActionPoints,
+                        procurement_recommendations: aiSummary.procurementRecommendations,
+                      }),
+                    });
+                    const d = await res.json();
+                    alert(d.persistedToSupabase ? 'Saved to Supabase PostgreSQL database!' : 'Saved to Analytical Outputs archive (Local mode).');
+                  } catch (e: any) {
+                    alert('Save notice: ' + e.message);
+                  }
+                }}
+                className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-lg transition flex items-center space-x-1"
+                title="Persist this report to Supabase analytical_outputs table"
+              >
+                <Database className="w-3.5 h-3.5" />
+                <span>Save to Supabase</span>
               </button>
 
               <button

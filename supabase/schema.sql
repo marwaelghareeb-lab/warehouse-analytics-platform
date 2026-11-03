@@ -118,12 +118,30 @@ CREATE TABLE IF NOT EXISTS public.expiry_data (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 8. ANALYTICAL OUTPUTS & SAVED EXECUTIVE REPORTS
+CREATE TABLE IF NOT EXISTS public.analytical_outputs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    title VARCHAR(255) NOT NULL,
+    report_scope VARCHAR(100) DEFAULT 'All Warehouses',
+    reporting_period VARCHAR(50) NOT NULL,
+    summary_type VARCHAR(50) DEFAULT 'executive_summary', -- 'executive_summary', 'kpi_brief', 'fefo_risk_matrix'
+    kpi_metrics JSONB NOT NULL DEFAULT '{}'::jsonb,
+    executive_narrative TEXT,
+    high_consumption_highlights JSONB DEFAULT '[]'::jsonb,
+    stock_risk_alerts JSONB DEFAULT '[]'::jsonb,
+    fefo_action_points JSONB DEFAULT '[]'::jsonb,
+    procurement_recommendations JSONB DEFAULT '[]'::jsonb,
+    generated_by VARCHAR(100) DEFAULT 'AI Warehouse Engine',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- INDEXES FOR PERFORMANCE
 CREATE INDEX IF NOT EXISTS idx_stock_snapshots_wh_period ON public.stock_snapshots(warehouse_code, reporting_period);
 CREATE INDEX IF NOT EXISTS idx_stock_snapshots_item ON public.stock_snapshots(item_code);
 CREATE INDEX IF NOT EXISTS idx_consumption_period_dept ON public.consumption_data(reporting_period, department);
 CREATE INDEX IF NOT EXISTS idx_receiving_grn_date ON public.receiving_data(receipt_date, supplier_name);
 CREATE INDEX IF NOT EXISTS idx_expiry_batch_date ON public.expiry_data(expiry_date);
+CREATE INDEX IF NOT EXISTS idx_analytical_outputs_period ON public.analytical_outputs(reporting_period);
 
 -- ROW LEVEL SECURITY (RLS) POLICIES
 ALTER TABLE public.warehouses ENABLE ROW LEVEL SECURITY;
@@ -133,6 +151,7 @@ ALTER TABLE public.stock_snapshots ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.consumption_data ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.receiving_data ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.expiry_data ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.analytical_outputs ENABLE ROW LEVEL SECURITY;
 
 -- Allow authenticated and service_role access
 CREATE POLICY "Allow public read access to warehouses" ON public.warehouses FOR SELECT USING (true);
@@ -143,6 +162,9 @@ CREATE POLICY "Allow public all on stock_snapshots" ON public.stock_snapshots FO
 CREATE POLICY "Allow public all on consumption_data" ON public.consumption_data FOR ALL USING (true);
 CREATE POLICY "Allow public all on receiving_data" ON public.receiving_data FOR ALL USING (true);
 CREATE POLICY "Allow public all on expiry_data" ON public.expiry_data FOR ALL USING (true);
+CREATE POLICY "Allow public all on analytical_outputs" ON public.analytical_outputs FOR ALL USING (true);
 
 -- STORAGE BUCKET CONFIGURATION (for Supabase Storage)
--- INSERT INTO storage.buckets (id, name, public) VALUES ('warehouse-reports', 'warehouse-reports', false) ON CONFLICT DO NOTHING;
+-- Storage bucket 'warehouse-reports' can be created via Supabase Dashboard > Storage
+-- or automatically initialized by the server.
+

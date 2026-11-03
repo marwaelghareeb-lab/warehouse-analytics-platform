@@ -13,6 +13,7 @@ import {
   Hospital,
   ChevronRight,
   Info,
+  Database,
 } from 'lucide-react';
 import { storageService } from '../../services/storageService';
 
@@ -25,7 +26,8 @@ export type PageId =
   | 'receiving'
   | 'risks'
   | 'reports'
-  | 'history';
+  | 'history'
+  | 'admin';
 
 interface SidebarProps {
   currentPage: PageId;
@@ -118,6 +120,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPage, onSelectPage }) =
       badge: reportCount > 0 ? reportCount : undefined,
       badgeColor: 'bg-slate-700 text-slate-200',
       description: 'Imported audit logs & files',
+    },
+    {
+      id: 'admin',
+      label: 'Admin & Supabase',
+      icon: Database,
+      description: 'Cloud sync & analytical store',
     },
   ];
 

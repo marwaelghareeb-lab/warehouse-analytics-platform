@@ -15,6 +15,7 @@ import { ReceivingAnalysisPage } from './pages/ReceivingAnalysisPage';
 import { StockRiskRecommendationsPage } from './pages/StockRiskRecommendationsPage';
 import { ReportsCenterPage } from './pages/ReportsCenterPage';
 import { UploadHistoryPage } from './pages/UploadHistoryPage';
+import { AdminPanelPage } from './pages/AdminPanelPage';
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState<PageId>('dashboard');
@@ -39,6 +40,8 @@ export default function App() {
         return 'Reports Center';
       case 'history':
         return 'Upload History';
+      case 'admin':
+        return 'Admin & Supabase Control';
       default:
         return 'Warehouse Analytics';
     }
@@ -85,6 +88,8 @@ export default function App() {
           {currentPage === 'history' && (
             <UploadHistoryPage onNavigateToUpload={() => setCurrentPage('upload')} />
           )}
+
+          {currentPage === 'admin' && <AdminPanelPage />}
         </main>
       </div>
     </div>
