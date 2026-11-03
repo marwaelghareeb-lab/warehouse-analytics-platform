@@ -1,0 +1,6 @@
+{
+  "name": "Warehouse Analytics Platform",
+  "description": "Hospital warehouse analytics platform for importing, processing, analyzing, and visualizing ERP stock, consumption, receiving, and expiry reports.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
