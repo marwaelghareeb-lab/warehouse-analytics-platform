@@ -7,6 +7,7 @@ import { GoogleGenAI, Type } from '@google/genai';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 dotenv.config();
+process.env.DISABLE_HMR = 'true';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
