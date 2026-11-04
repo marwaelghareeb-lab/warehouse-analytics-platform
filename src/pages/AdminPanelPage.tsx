@@ -318,12 +318,13 @@ CREATE POLICY "Allow public all on analytical_outputs" ON public.analytical_outp
             <span className="p-2 rounded-lg bg-teal-50 text-teal-700">
               <Database className="w-5 h-5" />
             </span>
-            <h1 className="text-xl font-black text-slate-900 tracking-tight">
-              Warehouse Administration & Supabase Control Panel
+            <h1 className="text-xl font-black text-slate-900 tracking-tight flex items-center space-x-1.5 flex-wrap">
+              <span className="font-brand font-black tracking-tight brand-gradient-light text-2xl">Inventra</span>
+              <span className="text-slate-900 font-bold">Administration & Supabase Control Panel</span>
             </h1>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            Manage Supabase PostgreSQL connection, batch data synchronization, storage bucket, and archive of saved analytical outputs.
+            Manage <span className="font-brand font-bold text-slate-800">Inventra</span> PostgreSQL connection, batch data synchronization, storage bucket, and archive of saved analytical outputs.
           </p>
         </div>
 

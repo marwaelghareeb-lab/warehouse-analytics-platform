@@ -699,7 +699,7 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Warehouse Analytics Platform running on port ${PORT}`);
+    console.log(`Inventra running on port ${PORT}`);
   });
 }
 

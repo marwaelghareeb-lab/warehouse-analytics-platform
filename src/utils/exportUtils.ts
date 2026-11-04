@@ -25,7 +25,7 @@ export function exportComprehensiveExcelReport(
 
   // 1. Executive Summary Sheet
   const kpiData = [
-    ['WAREHOUSE ANALYTICS PLATFORM - EXECUTIVE REPORT'],
+    ['INVENTRA - HOSPITAL WAREHOUSE ANALYTICS PLATFORM'],
     ['Hospital Warehouse Management & Stock Control System'],
     ['Reporting Period:', reportingPeriod],
     ['Scope / Warehouse:', warehouseName],
@@ -126,7 +126,7 @@ export function exportComprehensiveExcelReport(
 
   // Write and trigger download
   const dateTag = new Date().toISOString().split('T')[0];
-  XLSX.writeFile(wb, `Hospital_Warehouse_Analytics_Report_${reportingPeriod}_${dateTag}.xlsx`);
+  XLSX.writeFile(wb, `Inventra_Warehouse_Analytics_Report_${reportingPeriod}_${dateTag}.xlsx`);
 }
 
 /**
@@ -265,7 +265,7 @@ export function exportPDFExecutiveBrief(
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(16);
   doc.setFont('helvetica', 'bold');
-  doc.text('HOSPITAL WAREHOUSE ANALYTICS PLATFORM', 14, 14);
+  doc.text('INVENTRA • HOSPITAL WAREHOUSE ANALYTICS', 14, 14);
 
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
@@ -361,5 +361,5 @@ export function exportPDFExecutiveBrief(
   doc.setTextColor(148, 163, 184);
   doc.text('Confidential - Internal Hospital Warehouse & Pharmacy Administration Only', 14, 285);
 
-  doc.save(`Warehouse_Executive_Brief_${reportingPeriod}.pdf`);
+  doc.save(`Inventra_Executive_Brief_${reportingPeriod}.pdf`);
 }

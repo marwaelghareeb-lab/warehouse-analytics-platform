@@ -96,8 +96,9 @@ export const InventoryAnalysisPage: React.FC = () => {
             <span className="p-2 rounded-lg bg-teal-50 text-teal-700">
               <Boxes className="w-5 h-5" />
             </span>
-            <h1 className="text-xl font-black text-slate-900 tracking-tight">
-              Hospital Inventory & Stock Balance Analysis
+            <h1 className="text-xl font-black text-slate-900 tracking-tight flex items-center space-x-1.5 flex-wrap">
+              <span className="font-brand font-black tracking-tight brand-gradient-light text-2xl">Inventra</span>
+              <span className="text-slate-900 font-bold">Stock Balance & Inventory Analysis</span>
             </h1>
           </div>
           <p className="text-xs text-slate-500 mt-1">

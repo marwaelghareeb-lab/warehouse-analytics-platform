@@ -43,7 +43,7 @@ export default function App() {
       case 'admin':
         return 'Admin & Supabase Control';
       default:
-        return 'Warehouse Analytics';
+        return 'Inventra';
     }
   };
 

@@ -56,21 +56,29 @@ export const Navbar: React.FC<NavbarProps> = ({ onNavigateToUpload, activePageTi
     <header className="sticky top-0 z-30 bg-slate-900 border-b border-slate-800 text-white shadow-sm">
       <div className="px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-4">
         {/* Left: Branding & Current Context */}
-        <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 rounded-lg bg-teal-500/20 border border-teal-500/40 flex items-center justify-center text-teal-400">
-            <Building2 className="w-6 h-6" />
+        <div className="flex items-center space-x-3.5">
+          <div className="relative group">
+            <div className="absolute -inset-0.5 bg-gradient-to-r from-teal-400 to-emerald-400 rounded-xl blur-xs opacity-75 group-hover:opacity-100 transition duration-300"></div>
+            <div className="relative w-10 h-10 rounded-xl bg-slate-950 border border-teal-500/40 flex items-center justify-center font-brand font-black text-xl tracking-tight shadow-md">
+              <span className="bg-gradient-to-tr from-teal-400 via-teal-200 to-white bg-clip-text text-transparent">
+                I
+              </span>
+            </div>
           </div>
           <div>
             <div className="flex items-center space-x-2">
-              <span className="font-extrabold text-lg tracking-tight text-white">
-                KFSH <span className="text-teal-400 font-light">Medical Warehouses</span>
+              <span className="font-brand font-extrabold text-xl tracking-tight brand-gradient">
+                Inventra
               </span>
-              <span className="bg-slate-800 text-slate-300 text-xs px-2 py-0.5 rounded border border-slate-700 font-medium">
+              <span className="text-teal-400 font-normal text-xs px-2 py-0.5 rounded-full bg-teal-950/70 border border-teal-500/30 tracking-wide uppercase">
+                Platform
+              </span>
+              <span className="bg-slate-800 text-slate-300 text-[10px] px-2 py-0.5 rounded-full border border-slate-700 font-semibold tracking-wider">
                 SAR
               </span>
             </div>
-            <p className="text-xs text-slate-400">
-              Hospital Warehouse & Stock Control Analytics • Existing ERP Integration
+            <p className="text-[11px] text-slate-400 font-normal tracking-tight">
+              Hospital Supply Chain & Stock Control Analytics • ERP Integration
             </p>
           </div>
         </div>

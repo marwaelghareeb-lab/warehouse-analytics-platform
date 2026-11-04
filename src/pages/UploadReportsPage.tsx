@@ -229,13 +229,14 @@ export const UploadReportsPage: React.FC<UploadReportsPageProps> = ({ onImportSu
               <span className="p-2 rounded-lg bg-teal-50 text-teal-700">
                 <UploadCloud className="w-5 h-5" />
               </span>
-              <h1 className="text-xl font-black text-slate-900 tracking-tight">
-                Import ERP Excel Reports
+              <h1 className="text-xl font-black text-slate-900 tracking-tight flex items-center space-x-1.5 flex-wrap">
+                <span className="font-brand font-black tracking-tight brand-gradient-light text-2xl">Inventra</span>
+                <span className="text-slate-900 font-bold">ERP Report Importer</span>
               </h1>
             </div>
             <p className="text-xs text-slate-500 mt-1 max-w-2xl">
               Upload historical and consolidated Excel (.xlsx, .xls) files exported from your existing hospital system.
-              AI automatically aligns ERP column variations, validates data integrity, and saves to normalized storage.
+              <span className="font-brand font-bold text-slate-800 ml-1">Inventra</span> automatically aligns ERP column variations, validates data integrity, and saves to normalized storage.
             </p>
           </div>
 

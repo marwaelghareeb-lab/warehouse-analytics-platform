@@ -133,6 +133,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPage, onSelectPage }) =
     <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col justify-between shrink-0 min-h-[calc(100vh-61px)]">
       {/* Navigation list */}
       <div className="py-4 px-3 space-y-1">
+        {/* Inventra Brand Identification Header */}
+        <div className="px-3 pb-3 pt-1 border-b border-slate-800/80 mb-2 flex items-center space-x-2.5">
+          <div className="w-7 h-7 rounded-lg bg-slate-800 border border-teal-500/40 flex items-center justify-center font-brand font-black text-sm shadow-xs">
+            <span className="bg-gradient-to-tr from-teal-400 to-white bg-clip-text text-transparent">I</span>
+          </div>
+          <div>
+            <div className="font-brand font-black text-base tracking-tight leading-tight brand-gradient">
+              Inventra
+            </div>
+            <span className="text-[10px] text-teal-400 font-medium tracking-wide">Healthcare ERP Analytics</span>
+          </div>
+        </div>
+
         <div className="px-3 pb-2 text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
           Analytics Navigation
         </div>
@@ -182,8 +195,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPage, onSelectPage }) =
       {/* Hospital Stock Controller Identity / Context Box */}
       <div className="p-3 m-3 bg-slate-800/60 border border-slate-700/60 rounded-xl text-xs text-slate-300">
         <div className="flex items-center space-x-2 text-teal-400 font-semibold mb-1">
-          <Hospital className="w-4 h-4" />
-          <span>Warehouse Operations</span>
+          <Hospital className="w-4 h-4 text-teal-400" />
+          <span className="font-brand font-bold text-white text-xs tracking-tight">Inventra <span className="text-teal-400 font-normal">Operations</span></span>
         </div>
         <p className="text-[11px] text-slate-400 leading-relaxed">
           Integrated with Hospital ERP. Data snapshot source: Historical Excel Exports.

@@ -132,15 +132,16 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
       <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 border border-slate-700/80 rounded-2xl p-5 text-white shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center space-x-2">
-            <h1 className="text-xl md:text-2xl font-black tracking-tight text-white">
-              Warehouse Executive Dashboard
+            <h1 className="text-xl md:text-2xl font-black tracking-tight text-white flex items-center space-x-2 flex-wrap">
+              <span className="font-brand font-black tracking-tight brand-gradient text-2xl md:text-3xl">Inventra</span>
+              <span className="text-slate-100 font-bold">Executive Dashboard</span>
             </h1>
             <span className="bg-teal-500/20 text-teal-300 text-xs px-2.5 py-0.5 rounded-full border border-teal-500/30 font-semibold">
               {selectedPeriod === 'ALL' ? 'All Periods' : `Period: ${selectedPeriod}`}
             </span>
           </div>
           <p className="text-xs text-slate-300 mt-1">
-            Consolidated stock valuation, consumption burn rate, GRN receipts and clinical risk oversight.
+            Welcome to <span className="font-brand font-bold text-teal-300 tracking-tight">Inventra</span> • Consolidated stock valuation, clinical consumption burn rate, and inventory risk oversight.
           </p>
         </div>
 
