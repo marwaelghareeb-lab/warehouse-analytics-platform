@@ -362,9 +362,13 @@ DATA INPUTS:
 // SUPABASE DATABASE & STORAGE ADMIN ENDPOINTS
 // ==========================================
 
+let runtimeSupabaseUrl = process.env.SUPABASE_URL || '';
+let runtimeSupabaseAnonKey = process.env.SUPABASE_ANON_KEY || '';
+let runtimeSupabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+
 const getSupabaseAdmin = (): SupabaseClient | null => {
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+  const url = runtimeSupabaseUrl || process.env.SUPABASE_URL;
+  const key = runtimeSupabaseServiceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY || runtimeSupabaseAnonKey || process.env.SUPABASE_ANON_KEY;
   if (!url || !key || url.includes('your-project') || key.includes('your-anon') || key.includes('your-service')) {
     return null;
   }
@@ -380,11 +384,52 @@ const getSupabaseAdmin = (): SupabaseClient | null => {
 
 let localSavedOutputs: any[] = [];
 
-// 1. Supabase Status & Connection Diagnostic
+// 1. Configure Supabase credentials at runtime from the Admin Panel
+app.post('/api/supabase/configure', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { url, anonKey, serviceRoleKey } = req.body;
+    if (typeof url === 'string') runtimeSupabaseUrl = url.trim();
+    if (typeof anonKey === 'string') runtimeSupabaseAnonKey = anonKey.trim();
+    if (typeof serviceRoleKey === 'string') runtimeSupabaseServiceRoleKey = serviceRoleKey.trim();
+
+    const client = getSupabaseAdmin();
+    if (!client) {
+      res.json({
+        success: false,
+        isConfigured: false,
+        message: 'Could not initialize client. Please verify that URL and at least one Key are provided.',
+      });
+      return;
+    }
+
+    // Ping test
+    let pingOk = false;
+    try {
+      const { error } = await client.from('warehouses').select('id', { count: 'exact', head: true }).limit(1);
+      pingOk = !error;
+    } catch (_) {
+      pingOk = false;
+    }
+
+    res.json({
+      success: true,
+      isConfigured: true,
+      message: 'Supabase credentials successfully connected to live platform!',
+      tablesReady: pingOk,
+    });
+  } catch (e: any) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// 2. Supabase Status & Connection Diagnostic
 app.get('/api/supabase/status', async (_req: Request, res: Response) => {
-  const url = process.env.SUPABASE_URL;
-  const hasAnonKey = !!process.env.SUPABASE_ANON_KEY && !process.env.SUPABASE_ANON_KEY.includes('your-anon');
-  const hasServiceKey = !!process.env.SUPABASE_SERVICE_ROLE_KEY && !process.env.SUPABASE_SERVICE_ROLE_KEY.includes('your-service');
+  const url = runtimeSupabaseUrl || process.env.SUPABASE_URL;
+  const anonKey = runtimeSupabaseAnonKey || process.env.SUPABASE_ANON_KEY;
+  const serviceKey = runtimeSupabaseServiceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  const hasAnonKey = !!anonKey && !anonKey.includes('your-anon');
+  const hasServiceKey = !!serviceKey && !serviceKey.includes('your-service');
   const isConfigured = !!url && !url.includes('your-project') && (hasAnonKey || hasServiceKey);
 
   if (!isConfigured) {
@@ -394,7 +439,7 @@ app.get('/api/supabase/status', async (_req: Request, res: Response) => {
       hasAnonKey,
       hasServiceKey,
       url: url || null,
-      message: 'Supabase credentials not configured in environment. Running in high-performance local store mode.',
+      message: 'Supabase credentials not configured yet. Enter your project URL and keys below or in environment.',
       savedOutputsCount: localSavedOutputs.length,
     });
     return;
@@ -416,11 +461,13 @@ app.get('/api/supabase/status', async (_req: Request, res: Response) => {
   try {
     // Check tables
     const tableChecks: Record<string, boolean> = {};
+    const tableErrors: Record<string, string | null> = {};
     const tables = ['warehouses', 'uploaded_reports', 'item_master', 'stock_snapshots', 'consumption_data', 'receiving_data', 'expiry_data', 'analytical_outputs'];
     
     for (const table of tables) {
-      const { error } = await supabase.from(table).select('id', { count: 'exact', head: true }).limit(1);
+      const { error } = await supabase.from(table).select('*').limit(1);
       tableChecks[table] = !error;
+      tableErrors[table] = error ? error.message : null;
     }
 
     // Check bucket
@@ -441,6 +488,7 @@ app.get('/api/supabase/status', async (_req: Request, res: Response) => {
       hasServiceKey,
       maskedUrl: url?.replace(/(https:\/\/[^.]+).*/, '$1.supabase.co'),
       tableChecks,
+      tableErrors,
       allTablesReady,
       bucketExists,
       message: allTablesReady
@@ -461,6 +509,8 @@ app.get('/api/supabase/status', async (_req: Request, res: Response) => {
   }
 });
 
+const isUuid = (str?: string): boolean => typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+
 // 2. Save Analytical Output (Executive summary, KPI brief, FEFO risk matrix)
 app.post('/api/supabase/save-analysis', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -470,8 +520,10 @@ app.post('/api/supabase/save-analysis', async (req: Request, res: Response): Pro
       return;
     }
 
+    const validId = output.id && isUuid(output.id) ? output.id : crypto.randomUUID();
+
     const savedRecord = {
-      id: output.id || `AO-${Date.now()}`,
+      id: validId,
       title: output.title,
       report_scope: output.report_scope || output.reportScope || 'All Warehouses',
       reporting_period: output.reporting_period || output.reportingPeriod || '2026-10',
@@ -492,11 +544,13 @@ app.post('/api/supabase/save-analysis', async (req: Request, res: Response): Pro
     // If Supabase is connected, persist to Postgres
     const supabase = getSupabaseAdmin();
     let supabasePersisted = false;
+    let supabaseError: string | undefined;
     if (supabase) {
       const { error } = await supabase.from('analytical_outputs').upsert(savedRecord);
       if (!error) {
         supabasePersisted = true;
       } else {
+        supabaseError = error.message;
         console.warn('Failed to upsert analytical_outputs to Supabase (using local store):', error.message);
       }
     }
@@ -505,9 +559,10 @@ app.post('/api/supabase/save-analysis', async (req: Request, res: Response): Pro
       success: true,
       record: savedRecord,
       persistedToSupabase: supabasePersisted,
+      supabaseError,
       message: supabasePersisted
         ? 'Analytical output saved to Supabase PostgreSQL database.'
-        : 'Analytical output saved to local store (Supabase not configured or table missing).',
+        : `Analytical output saved to local store (${supabaseError || 'Supabase not configured'}).`,
     });
   } catch (err: any) {
     console.error('Error saving analytical output:', err);
@@ -583,7 +638,31 @@ app.post('/api/supabase/sync-all', async (req: Request, res: Response): Promise<
       syncResults['warehouses'] = { attempted: records.length, succeeded: error ? 0 : records.length, error: error?.message };
     }
 
-    // 2. Uploaded Reports
+    // 2. Item Master (Required by foreign keys)
+    const itemMap = new Map<string, any>();
+    const addItem = (itemCode: string, itemDesc?: string, category?: string, unit?: string, cost?: number) => {
+      if (itemCode && !itemMap.has(itemCode)) {
+        itemMap.set(itemCode, {
+          item_code: itemCode,
+          item_description: itemDesc || itemCode,
+          category: category || 'General Medical Supplies',
+          unit: unit || 'Units',
+          standard_unit_cost: cost || 0,
+        });
+      }
+    };
+    (stockSnapshots || []).forEach((s: any) => addItem(s.itemCode, s.itemDescription, s.category, s.unit, s.unitCost));
+    (consumptionRecords || []).forEach((c: any) => addItem(c.itemCode, c.itemDescription, c.category, c.unit, c.unitCost));
+    (receivingRecords || []).forEach((r: any) => addItem(r.itemCode, r.itemDescription, r.category, r.unit, r.unitCost));
+    (expiryRecords || []).forEach((e: any) => addItem(e.itemCode, e.itemDescription, e.category, e.unit, e.unitCost));
+
+    if (itemMap.size > 0) {
+      const records = Array.from(itemMap.values());
+      const { error } = await supabase.from('item_master').upsert(records, { onConflict: 'item_code' });
+      syncResults['item_master'] = { attempted: records.length, succeeded: error ? 0 : records.length, error: error?.message };
+    }
+
+    // 3. Uploaded Reports
     if (reports && Array.isArray(reports) && reports.length > 0) {
       const records = reports.map((r: any) => ({
         filename: r.filename,
@@ -599,7 +678,7 @@ app.post('/api/supabase/sync-all', async (req: Request, res: Response): Promise<
       syncResults['uploaded_reports'] = { attempted: records.length, succeeded: error ? 0 : records.length, error: error?.message };
     }
 
-    // 3. Stock Snapshots
+    // 4. Stock Snapshots
     if (stockSnapshots && Array.isArray(stockSnapshots) && stockSnapshots.length > 0) {
       const records = stockSnapshots.map((s: any) => ({
         snapshot_date: s.snapshotDate || new Date().toISOString().split('T')[0],
@@ -614,7 +693,7 @@ app.post('/api/supabase/sync-all', async (req: Request, res: Response): Promise<
       syncResults['stock_snapshots'] = { attempted: records.length, succeeded: error ? 0 : records.length, error: error?.message };
     }
 
-    // 4. Consumption Records
+    // 5. Consumption Records
     if (consumptionRecords && Array.isArray(consumptionRecords) && consumptionRecords.length > 0) {
       const records = consumptionRecords.map((c: any) => ({
         transaction_date: c.transactionDate || new Date().toISOString().split('T')[0],
@@ -630,7 +709,7 @@ app.post('/api/supabase/sync-all', async (req: Request, res: Response): Promise<
       syncResults['consumption_data'] = { attempted: records.length, succeeded: error ? 0 : records.length, error: error?.message };
     }
 
-    // 5. Receiving Records
+    // 6. Receiving Records
     if (receivingRecords && Array.isArray(receivingRecords) && receivingRecords.length > 0) {
       const records = receivingRecords.map((r: any) => ({
         grn_number: r.grnNumber,
@@ -649,7 +728,7 @@ app.post('/api/supabase/sync-all', async (req: Request, res: Response): Promise<
       syncResults['receiving_data'] = { attempted: records.length, succeeded: error ? 0 : records.length, error: error?.message };
     }
 
-    // 6. Expiry Records
+    // 7. Expiry Records
     if (expiryRecords && Array.isArray(expiryRecords) && expiryRecords.length > 0) {
       const records = expiryRecords.map((e: any) => ({
         warehouse_code: e.warehouseCode,
@@ -664,10 +743,25 @@ app.post('/api/supabase/sync-all', async (req: Request, res: Response): Promise<
       syncResults['expiry_data'] = { attempted: records.length, succeeded: error ? 0 : records.length, error: error?.message };
     }
 
-    // 7. Analytical Outputs
+    // 8. Analytical Outputs
     if (analyticalOutputs && Array.isArray(analyticalOutputs) && analyticalOutputs.length > 0) {
-      const { error } = await supabase.from('analytical_outputs').upsert(analyticalOutputs);
-      syncResults['analytical_outputs'] = { attempted: analyticalOutputs.length, succeeded: error ? 0 : analyticalOutputs.length, error: error?.message };
+      const records = analyticalOutputs.map((o: any) => ({
+        id: isUuid(o.id) ? o.id : crypto.randomUUID(),
+        title: o.title,
+        report_scope: o.report_scope || o.reportScope || 'All Warehouses',
+        reporting_period: o.reporting_period || o.reportingPeriod || '2026-10',
+        summary_type: o.summary_type || o.summaryType || 'executive_summary',
+        kpi_metrics: o.kpi_metrics || o.kpiMetrics || {},
+        executive_narrative: o.executive_narrative || o.executiveNarrative || '',
+        high_consumption_highlights: o.high_consumption_highlights || o.highConsumptionHighlights || [],
+        stock_risk_alerts: o.stock_risk_alerts || o.stockRiskAlerts || [],
+        fefo_action_points: o.fefo_action_points || o.fefoActionPoints || [],
+        procurement_recommendations: o.procurement_recommendations || o.procurementRecommendations || [],
+        generated_by: o.generated_by || o.generatedBy || 'Hospital AI Warehouse Engine',
+        created_at: o.created_at || o.createdAt || new Date().toISOString(),
+      }));
+      const { error } = await supabase.from('analytical_outputs').upsert(records);
+      syncResults['analytical_outputs'] = { attempted: records.length, succeeded: error ? 0 : records.length, error: error?.message };
     }
 
     res.json({

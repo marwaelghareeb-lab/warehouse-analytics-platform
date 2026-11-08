@@ -44,11 +44,14 @@ export const Navbar: React.FC<NavbarProps> = ({ onNavigateToUpload, activePageTi
 
   const handleToggleDemo = () => {
     if (isDemoMode) {
-      if (confirm('Switch to live imported data view? (You can toggle back to demo anytime).')) {
-        storageService.setIsDemoMode(false);
+      if (confirm('Clear sample demo data? Your dashboard will switch to clean Live Mode for your imported ERP reports.')) {
+        storageService.clearAllData();
+        onNavigateToUpload();
       }
     } else {
-      storageService.loadDemoData();
+      if (confirm('Reload fictional sample medical warehouse data for demonstration?')) {
+        storageService.loadDemoData();
+      }
     }
   };
 

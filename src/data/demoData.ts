@@ -1235,10 +1235,10 @@ export const STANDARD_FIELDS_DICTIONARY: FieldDefinition[] = [
   {
     key: 'transactionDate',
     label: 'Transaction / Receipt Date',
-    description: 'Date of movement, receipt or snapshot capture',
-    requiredFor: ['consumption', 'receiving_grn'],
+    description: 'Specific transaction date if available (optional for monthly consolidated consumption)',
+    requiredFor: ['receiving_grn'],
     type: 'date',
-    aliases: ['date', 'transaction date', 'posting date', 'issue date', 'receipt date', 'txn date', 'created date', 'grn date'],
+    aliases: ['date', 'transaction date', 'posting date', 'issue date', 'receipt date', 'txn date', 'created date', 'grn date', 'movement date', 'entry date'],
   },
   {
     key: 'reportingPeriod',
@@ -1259,10 +1259,10 @@ export const STANDARD_FIELDS_DICTIONARY: FieldDefinition[] = [
   {
     key: 'department',
     label: 'Consuming Department',
-    description: 'Hospital clinic, unit or operating theater requesting goods',
-    requiredFor: ['consumption'],
+    description: 'Hospital clinic, ward or operating room (optional for hospital-wide monthly consumption)',
+    requiredFor: [],
     type: 'string',
-    aliases: ['department', 'dept', 'cost center', 'ward', 'requesting unit', 'clinic', 'section', 'service'],
+    aliases: ['department', 'dept', 'cost center', 'ward', 'requesting unit', 'clinic', 'section', 'service', 'location', 'dept_name', 'consuming unit'],
   },
   {
     key: 'batchNumber',

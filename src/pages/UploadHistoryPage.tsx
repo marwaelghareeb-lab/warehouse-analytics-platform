@@ -24,6 +24,7 @@ export const UploadHistoryPage: React.FC<UploadHistoryPageProps> = ({ onNavigate
   const [reports, setReports] = useState<UploadedReport[]>(storageService.getUploadedReports());
   const [isDemo, setIsDemo] = useState<boolean>(storageService.getIsDemoMode());
   const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const [reportToDelete, setReportToDelete] = useState<UploadedReport | null>(null);
 
   useEffect(() => {
     const update = () => {
@@ -35,12 +36,11 @@ export const UploadHistoryPage: React.FC<UploadHistoryPageProps> = ({ onNavigate
     return unsub;
   }, []);
 
-  const handleDeleteReport = (report: UploadedReport) => {
-    if (confirm(`Remove report "${report.filename}" and its associated inventory records from analytics?`)) {
-      storageService.deleteReport(report.id);
-      setActionNotice(`Report "${report.filename}" was successfully removed.`);
-      setTimeout(() => setActionNotice(null), 3500);
-    }
+  const executeDeleteReport = (report: UploadedReport) => {
+    storageService.deleteReport(report.id);
+    setReportToDelete(null);
+    setActionNotice(`Report "${report.filename}" was successfully removed.`);
+    setTimeout(() => setActionNotice(null), 3500);
   };
 
   const handleReprocessReport = (report: UploadedReport) => {
@@ -199,16 +199,17 @@ export const UploadHistoryPage: React.FC<UploadHistoryPageProps> = ({ onNavigate
                         <button
                           onClick={() => handleReprocessReport(report)}
                           title="Reprocess report rules and validation"
-                          className="p-1.5 text-slate-500 hover:text-teal-700 hover:bg-slate-100 rounded transition"
+                          className="p-1.5 text-slate-500 hover:text-teal-700 hover:bg-slate-100 rounded-lg transition"
                         >
                           <RotateCcw className="w-3.5 h-3.5" />
                         </button>
                         <button
-                          onClick={() => handleDeleteReport(report)}
+                          onClick={() => setReportToDelete(report)}
                           title="Delete report and associated records"
-                          className="p-1.5 text-slate-500 hover:text-rose-700 hover:bg-rose-50 rounded transition"
+                          className="inline-flex items-center space-x-1 px-2.5 py-1 text-rose-700 hover:text-white bg-rose-50 hover:bg-rose-600 border border-rose-200 hover:border-rose-600 rounded-lg text-xs font-semibold transition shadow-2xs"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
+                          <span>Delete</span>
                         </button>
                       </div>
                     </td>
@@ -225,6 +226,52 @@ export const UploadHistoryPage: React.FC<UploadHistoryPageProps> = ({ onNavigate
           </table>
         </div>
       </div>
+
+      {/* Confirmation Modal for Deletion (Guarantees elimination of browser alert blockage) */}
+      {reportToDelete && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full border border-slate-200 shadow-2xl p-6 space-y-4">
+            <div className="flex items-start space-x-3">
+              <div className="p-2.5 rounded-xl bg-rose-50 text-rose-600 shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900 text-sm">
+                  Delete Report & Associated Records?
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  Are you sure you want to remove <strong>"{reportToDelete.filename}"</strong>?
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs text-slate-600 space-y-1">
+              <div>• Report Period: <strong className="text-slate-800">{reportToDelete.reportingPeriod}</strong></div>
+              <div>• Target Warehouse: <strong className="text-slate-800">{reportToDelete.warehouseCode}</strong></div>
+              <div>• Rows to be removed: <strong className="text-slate-800">{reportToDelete.totalRowsImported.toLocaleString()} records</strong></div>
+              <p className="text-[11px] text-rose-700 font-semibold pt-1">
+                All records attached to this upload will be removed from stock valuation, consumption, and dashboards.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100">
+              <button
+                onClick={() => setReportToDelete(null)}
+                className="px-4 py-2 border border-slate-300 text-slate-700 text-xs rounded-lg hover:bg-slate-50 font-semibold transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => executeDeleteReport(reportToDelete)}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs rounded-lg font-bold shadow-xs transition flex items-center space-x-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Confirm Delete</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

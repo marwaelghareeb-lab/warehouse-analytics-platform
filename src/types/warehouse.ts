@@ -43,7 +43,66 @@ export interface StockSnapshot {
   minSafetyStock?: number;
   maxStockLevel?: number;
   reorderPoint?: number;
+
+  // Batch & UOM conversion fields
+  batchNumber?: string;
+  expiryDate?: string;
+  convertedQuantity?: number;
+  standardUnit?: string;
+  conversionFactor?: number;
+  conversionStatus?: 'converted' | 'same_unit' | 'conversion_required' | 'name_pattern_detected';
 }
+
+export interface ItemBatchDetail {
+  id: string;
+  reportId?: string;
+  itemCode: string;
+  batchNumber: string;
+  expiryDate?: string;
+  daysUntilExpiry?: number;
+  originalQuantity: number;
+  originalUnit: string;
+  convertedQuantity: number;
+  standardUnit: string;
+  conversionFactor: number;
+  conversionStatus: 'converted' | 'same_unit' | 'conversion_required' | 'name_pattern_detected';
+  unitCost: number; // per original unit or base unit
+  totalValueSAR: number;
+  warehouseCode: string;
+  reportingPeriod: string;
+  snapshotDate: string;
+}
+
+export interface AggregatedInventoryItem {
+  itemCode: string;
+  itemDescription: string;
+  category: string;
+  warehouseCode: string;
+  reportingPeriod: string;
+  snapshotDate: string;
+  totalQuantity: number; // in standardized UOM
+  standardUnit: string;
+  batchCount: number;
+  totalStockValueSAR: number;
+  earliestExpiryDate?: string;
+  earliestExpiryDays?: number;
+  batches: ItemBatchDetail[];
+  stockStatus: StockStatus;
+  conversionRequired?: boolean;
+  namePatternFactor?: number;
+}
+
+export interface UOMConversionRule {
+  id: string;
+  itemCode: string; // item specific code or '*' for global
+  itemDescription?: string;
+  fromUnit: string; // e.g. 'Box', 'Carton', 'Pack'
+  toUnit: string; // base unit, e.g. 'Piece', 'Unit', 'Tablet', 'Vial'
+  factor: number; // 1 fromUnit = factor toUnits. E.g. 1 Box = 10 Pieces -> factor: 10
+  source: 'admin' | 'name_pattern' | 'default';
+  updatedAt: string;
+}
+
 
 export interface ConsumptionRecord {
   id: string;

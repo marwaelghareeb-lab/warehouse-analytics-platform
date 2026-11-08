@@ -54,6 +54,13 @@ export const AdminPanelPage: React.FC = () => {
   // Tab
   const [activeTab, setActiveTab] = useState<'connection' | 'outputs' | 'schema' | 'master'>('connection');
 
+  // Credentials input form
+  const [supabaseUrlInput, setSupabaseUrlInput] = useState('');
+  const [anonKeyInput, setAnonKeyInput] = useState('');
+  const [serviceRoleKeyInput, setServiceRoleKeyInput] = useState('');
+  const [isConfiguring, setIsConfiguring] = useState(false);
+  const [configFeedback, setConfigFeedback] = useState<string | null>(null);
+
   // Load status
   const fetchStatus = async () => {
     setIsLoadingStatus(true);
@@ -88,6 +95,39 @@ export const AdminPanelPage: React.FC = () => {
       console.warn('Failed to load saved outputs', e);
     } finally {
       setIsLoadingOutputs(false);
+    }
+  };
+
+  // Handle manual Supabase configuration
+  const handleConfigureSupabase = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!supabaseUrlInput || (!anonKeyInput && !serviceRoleKeyInput)) {
+      setConfigFeedback('Please provide both your Supabase Project URL and at least one API key (Anon or Service Role).');
+      return;
+    }
+    setIsConfiguring(true);
+    setConfigFeedback(null);
+    try {
+      const res = await fetch('/api/supabase/configure', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: supabaseUrlInput,
+          anonKey: anonKeyInput,
+          serviceRoleKey: serviceRoleKeyInput,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setConfigFeedback('Supabase connected successfully! You can now synchronize all reports and analytical outputs.');
+        fetchStatus();
+      } else {
+        setConfigFeedback(`Connection note: ${data.message || data.error}`);
+      }
+    } catch (err: any) {
+      setConfigFeedback('Connection error: ' + err.message);
+    } finally {
+      setIsConfiguring(false);
     }
   };
 
@@ -501,6 +541,91 @@ CREATE POLICY "Allow public all on analytical_outputs" ON public.analytical_outp
             </div>
           </div>
 
+          {/* Quick Connect Form */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
+            <div className="flex items-center space-x-2 pb-4 border-b border-slate-100">
+              <Key className="w-5 h-5 text-teal-600" />
+              <div>
+                <h3 className="font-bold text-sm text-slate-900 uppercase tracking-wider">
+                  Connect With Supabase Project
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Enter your Supabase Project URL, Public Anon Key, and Service Role Key to link the live PostgreSQL database and storage.
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleConfigureSupabase} className="mt-4 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Project URL
+                  </label>
+                  <input
+                    type="url"
+                    placeholder="https://your-project.supabase.co"
+                    value={supabaseUrlInput}
+                    onChange={(e) => setSupabaseUrlInput(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-xs font-mono"
+                    required
+                  />
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">Found in Project Settings &gt; API</span>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Anon Public Key
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..."
+                    value={anonKeyInput}
+                    onChange={(e) => setAnonKeyInput(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-xs font-mono"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">Client-side operations key</span>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Service Role Key <span className="text-teal-600 font-bold">(Recommended)</span>
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..."
+                    value={serviceRoleKeyInput}
+                    onChange={(e) => setServiceRoleKeyInput(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-xs font-mono"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">Allows batch table sync bypassing RLS</span>
+                </div>
+              </div>
+
+              {configFeedback && (
+                <div className="p-3 bg-teal-50 border border-teal-200 rounded-lg text-xs text-teal-900 font-medium flex items-center justify-between">
+                  <span>{configFeedback}</span>
+                  <button type="button" onClick={() => setConfigFeedback(null)} className="underline text-teal-700 font-bold ml-2">
+                    Dismiss
+                  </button>
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                <span className="text-[11px] text-slate-400">
+                  Credentials are verified and securely maintained in server runtime memory.
+                </span>
+                <button
+                  type="submit"
+                  disabled={isConfiguring}
+                  className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-lg transition flex items-center space-x-1.5 shadow-xs disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isConfiguring ? 'animate-spin' : ''}`} />
+                  <span>{isConfiguring ? 'Connecting...' : 'Connect to Supabase'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+
           {/* Database Table Diagnostic Matrix */}
           <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
             <div className="flex items-center justify-between mb-4">
@@ -553,6 +678,37 @@ CREATE POLICY "Allow public all on analytical_outputs" ON public.analytical_outp
                 );
               })}
             </div>
+
+            {!status?.allTablesReady && status?.isConnected && (
+              <div className="mt-5 p-4 bg-amber-50 border border-amber-200 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs text-amber-900">
+                <div className="flex items-start space-x-3">
+                  <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <div className="font-bold text-amber-950">Supabase Connected • 8 Tables Pending Creation</div>
+                    <div className="text-amber-800 text-[11px] mt-0.5">
+                      Your Supabase database is connected, but the warehouse tables haven't been created yet. Copy the complete SQL schema and run it in your Supabase SQL Editor.
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-2 shrink-0">
+                  <button
+                    onClick={() => setActiveTab('schema')}
+                    className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-lg transition"
+                  >
+                    View &amp; Copy SQL Schema
+                  </button>
+                  <a
+                    href="https://supabase.com/dashboard"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-3 py-1.5 bg-white border border-amber-300 text-amber-900 font-semibold text-xs rounded-lg hover:bg-amber-100 transition flex items-center space-x-1"
+                  >
+                    <span>Supabase Studio</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

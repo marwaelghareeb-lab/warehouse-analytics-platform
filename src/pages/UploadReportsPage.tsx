@@ -25,6 +25,7 @@ import {
   normalizeExcelData,
   ParsedSheetData,
   ValidationResult,
+  SheetMetadata,
 } from '../utils/excelParser';
 import { STANDARD_FIELDS_DICTIONARY } from '../data/demoData';
 import { storageService } from '../services/storageService';
@@ -56,6 +57,7 @@ export const UploadReportsPage: React.FC<UploadReportsPageProps> = ({ onImportSu
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [importStatus, setImportStatus] = useState<'idle' | 'importing' | 'success' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [replaceDemoData, setReplaceDemoData] = useState<boolean>(storageService.getIsDemoMode());
 
   const warehouses = storageService.getWarehouses();
 
@@ -151,17 +153,15 @@ export const UploadReportsPage: React.FC<UploadReportsPageProps> = ({ onImportSu
   const handleProceedToValidation = () => {
     if (!fileData) return;
 
-    // Read all rows from worksheet
-    const worksheet = fileData.rawWorkbook.Sheets[selectedSheet];
-    const allRows = window ? (fileData.sampleRows.length === fileData.totalRows ? fileData.sampleRows : fileData.sampleRows) : [];
-
-    // Full validation
+    // Full validation across ALL actual rows in the uploaded Excel workbook
+    const uomRules = storageService.getUOMConversions();
     const result = validateImportData(
-      fileData.sampleRows, // using sample & full rows
+      fileData.allRows,
       columnMapping,
       reportType,
       targetWarehouse,
-      reportingPeriod
+      reportingPeriod,
+      uomRules
     );
 
     setValidationResult(result);
@@ -175,15 +175,17 @@ export const UploadReportsPage: React.FC<UploadReportsPageProps> = ({ onImportSu
 
     try {
       const reportId = `REP-${Date.now()}`;
+      const uomRules = storageService.getUOMConversions();
       
-      // Normalize data based on business rules
+      // Normalize ALL data rows based on business rules and UOM conversions
       const normalized = normalizeExcelData(
-        fileData.sampleRows,
+        fileData.allRows,
         columnMapping,
         reportType,
         targetWarehouse,
         reportingPeriod,
-        reportId
+        reportId,
+        uomRules
       );
 
       const newReport = {
@@ -193,7 +195,7 @@ export const UploadReportsPage: React.FC<UploadReportsPageProps> = ({ onImportSu
         warehouseCode: targetWarehouse,
         reportingPeriod,
         fileSizeBytes: 150000,
-        totalRowsImported: fileData.totalRows,
+        totalRowsImported: validationResult.successfullyImportedRows,
         validationStatus: validationResult.isValid ? ('completed' as const) : ('warnings' as const),
         validationErrors: validationResult.issues.map((i) => i.message),
         uploadedAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
@@ -206,7 +208,25 @@ export const UploadReportsPage: React.FC<UploadReportsPageProps> = ({ onImportSu
         consumptionRecords: normalized.consumptionRecords,
         receivingRecords: normalized.receivingRecords,
         expiryRecords: normalized.expiryRecords,
+        replaceDemoData: replaceDemoData,
       });
+
+      // Background sync to Supabase PostgreSQL database
+      try {
+        fetch('/api/supabase/sync-all', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reports: [newReport],
+            stockSnapshots: normalized.stockSnapshots,
+            consumptionRecords: normalized.consumptionRecords,
+            receivingRecords: normalized.receivingRecords,
+            expiryRecords: normalized.expiryRecords,
+          }),
+        }).catch((e) => console.warn('Background Supabase sync notice:', e));
+      } catch (err) {
+        // Silently continue
+      }
 
       setImportStatus('success');
       setTimeout(() => {
@@ -384,6 +404,30 @@ export const UploadReportsPage: React.FC<UploadReportsPageProps> = ({ onImportSu
                   Prevents double counting repeated uploads.
                 </p>
               </div>
+
+              {/* Replace Demo Data Toggle */}
+              <div className="md:col-span-3 pt-2 border-t border-slate-200">
+                <label className="flex items-start space-x-3 cursor-pointer group">
+                  <input
+                    type="checkbox"
+                    checked={replaceDemoData}
+                    onChange={(e) => setReplaceDemoData(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 rounded text-teal-600 focus:ring-teal-500 border-slate-300 cursor-pointer"
+                  />
+                  <div>
+                    <span className="text-xs font-bold text-slate-900 group-hover:text-teal-700 transition">
+                      {storageService.getIsDemoMode()
+                        ? 'Replace sample demo data with this real report'
+                        : 'Reset database and replace all existing reports with this report'}
+                    </span>
+                    <p className="text-[11px] text-slate-500">
+                      {storageService.getIsDemoMode()
+                        ? 'Leave checked on your first upload to clear fictional sample records. Once you upload your stock report, UNCHECK this to keep stock and add your consumption / GRN reports alongside it.'
+                        : 'Keep UNCHECKED to preserve your previously uploaded reports (e.g. keep Stock Report and add Consumption / GRN side-by-side). Check only if you wish to start completely fresh.'}
+                    </p>
+                  </div>
+                </label>
+              </div>
             </div>
           </div>
 
@@ -430,9 +474,15 @@ export const UploadReportsPage: React.FC<UploadReportsPageProps> = ({ onImportSu
             <div>
               <span className="font-bold text-slate-900 text-sm">{fileData.fileName}</span>
               <div className="text-slate-500 mt-0.5">
-                Total Rows: <strong className="text-slate-800">{fileData.totalRows}</strong> • Target Store:{' '}
+                Total Rows in File: <strong className="text-slate-900 font-bold">{fileData.totalRows.toLocaleString()} records</strong> • Target Store:{' '}
                 <strong className="text-slate-800">{targetWarehouse}</strong> • Period:{' '}
                 <strong className="text-slate-800">{reportingPeriod}</strong>
+              </div>
+              <div className="text-[11px] text-teal-700 font-medium mt-1 bg-teal-50 px-2.5 py-1 rounded-md border border-teal-200 inline-flex items-center space-x-1.5">
+                <Info className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                <span>
+                  Displaying preview of first {fileData.sampleRows.length} rows. All {fileData.totalRows.toLocaleString()} actual rows will be validated, aggregated across batches, and saved.
+                </span>
               </div>
             </div>
 
@@ -445,11 +495,14 @@ export const UploadReportsPage: React.FC<UploadReportsPageProps> = ({ onImportSu
                     onChange={(e) => handleSheetChange(e.target.value)}
                     className="bg-slate-50 border border-slate-300 rounded px-2.5 py-1 text-xs text-slate-800 font-medium"
                   >
-                    {fileData.sheetNames.map((name) => (
-                      <option key={name} value={name}>
-                        {name}
-                      </option>
-                    ))}
+                    {fileData.sheetNames.map((name) => {
+                      const meta = fileData.sheetsMetadata?.find((s: SheetMetadata) => s.name === name);
+                      return (
+                        <option key={name} value={name}>
+                          {name} {meta ? `(${meta.rowCount.toLocaleString()} rows)` : ''}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
               )}
@@ -601,24 +654,58 @@ export const UploadReportsPage: React.FC<UploadReportsPageProps> = ({ onImportSu
                   }`}
                 >
                   {validationResult.isValid
-                    ? 'Data Validation Passed Successfully'
-                    : 'Validation Issues Detected'}
+                    ? 'All Rows Validated Successfully'
+                    : 'Validation Issues Detected in Dataset'}
                 </h3>
                 <p className="text-xs text-slate-600 mt-1">
-                  Checked {validationResult.totalRowsChecked} rows against hospital inventory business rules.
-                  Ready for normalized persistence into Supabase Postgres database.
+                  Validated <strong>{validationResult.totalRowsValidated.toLocaleString()}</strong> actual data records from <strong>{fileData.fileName}</strong> against hospital ERP rules.
+                  Multi-batch items recognized and ready for smart aggregation and Supabase persistence.
                 </p>
 
-                <div className="mt-3 flex items-center flex-wrap gap-4 text-xs font-semibold">
-                  <span className="text-slate-700">
-                    Total Rows Checked: <strong>{validationResult.totalRowsChecked}</strong>
+                {/* 6 Key Statistics Required by User */}
+                <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-3 border-t border-slate-200/60 text-xs">
+                  <div className="bg-white/80 p-2.5 rounded-lg border border-slate-200">
+                    <span className="text-[10px] uppercase font-bold text-slate-500 block">Total Rows Read</span>
+                    <strong className="text-sm font-black text-slate-900">{validationResult.totalRowsRead.toLocaleString()}</strong>
+                  </div>
+                  <div className="bg-white/80 p-2.5 rounded-lg border border-slate-200">
+                    <span className="text-[10px] uppercase font-bold text-slate-500 block">Total Rows Validated</span>
+                    <strong className="text-sm font-black text-slate-900">{validationResult.totalRowsValidated.toLocaleString()}</strong>
+                  </div>
+                  <div className="bg-white/80 p-2.5 rounded-lg border border-emerald-200">
+                    <span className="text-[10px] uppercase font-bold text-emerald-700 block">Clean Rows</span>
+                    <strong className="text-sm font-black text-emerald-700">{validationResult.cleanRows.toLocaleString()}</strong>
+                  </div>
+                  <div className="bg-white/80 p-2.5 rounded-lg border border-rose-200">
+                    <span className="text-[10px] uppercase font-bold text-rose-700 block">Rows with Errors</span>
+                    <strong className="text-sm font-black text-rose-700">{validationResult.rowsWithErrors.toLocaleString()}</strong>
+                  </div>
+                  <div className="bg-white/80 p-2.5 rounded-lg border border-amber-200">
+                    <span className="text-[10px] uppercase font-bold text-amber-700 block">Rows with Warnings</span>
+                    <strong className="text-sm font-black text-amber-700">{validationResult.rowsWithWarnings.toLocaleString()}</strong>
+                  </div>
+                  <div className="bg-white/80 p-2.5 rounded-lg border border-teal-300">
+                    <span className="text-[10px] uppercase font-bold text-teal-800 block">Ready to Import</span>
+                    <strong className="text-sm font-black text-teal-800">{validationResult.successfullyImportedRows.toLocaleString()}</strong>
+                  </div>
+                </div>
+
+                {/* Smart Aggregation & UOM Insights */}
+                <div className="mt-3 flex items-center flex-wrap gap-2 text-[11px]">
+                  <span className="px-2.5 py-1 rounded bg-teal-100/70 text-teal-900 border border-teal-300 font-semibold inline-flex items-center space-x-1">
+                    <span>Multi-Batch Items:</span>
+                    <strong className="ml-1 text-teal-950 font-black">{validationResult.multiBatchItemsCount}</strong>
                   </span>
-                  <span className="text-emerald-700">
-                    Clean Rows: <strong>{validationResult.validRowCount}</strong>
+                  <span className="px-2.5 py-1 rounded bg-indigo-100/70 text-indigo-900 border border-indigo-300 font-semibold inline-flex items-center space-x-1">
+                    <span>UOM Standardized:</span>
+                    <strong className="ml-1 text-indigo-950 font-black">{validationResult.uomConvertedItemsCount}</strong>
                   </span>
-                  <span className="text-amber-700">
-                    Warnings / Notices: <strong>{validationResult.issues.length}</strong>
-                  </span>
+                  {validationResult.uomConversionRequiredCount > 0 && (
+                    <span className="px-2.5 py-1 rounded bg-amber-100 text-amber-900 border border-amber-300 font-bold inline-flex items-center space-x-1">
+                      <span>UOM Configuration Needed:</span>
+                      <strong className="ml-1 text-amber-950 font-black">{validationResult.uomConversionRequiredCount}</strong>
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -651,37 +738,57 @@ export const UploadReportsPage: React.FC<UploadReportsPageProps> = ({ onImportSu
           )}
 
           {/* Action buttons */}
-          <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs flex items-center justify-between">
+          <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <button
               onClick={() => setCurrentStep(2)}
-              className="px-4 py-2 border border-slate-300 text-slate-700 font-semibold text-xs rounded-lg hover:bg-slate-50 transition flex items-center space-x-1.5"
+              className="px-4 py-2 border border-slate-300 text-slate-700 font-semibold text-xs rounded-lg hover:bg-slate-50 transition flex items-center space-x-1.5 self-start sm:self-auto"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
               <span>Back to Column Mapping</span>
             </button>
 
-            <button
-              onClick={handleConfirmImport}
-              disabled={importStatus === 'importing' || (!validationResult.isValid && validationResult.validRowCount === 0)}
-              className="px-6 py-2.5 bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700 text-slate-950 font-extrabold text-xs rounded-lg transition flex items-center space-x-2 shadow-sm disabled:opacity-50"
-            >
-              {importStatus === 'importing' ? (
-                <>
-                  <RotateCcw className="w-4 h-4 animate-spin" />
-                  <span>Saving to Supabase Postgres...</span>
-                </>
-              ) : importStatus === 'success' ? (
-                <>
-                  <Check className="w-4 h-4" />
-                  <span>Import Completed!</span>
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>Confirm & Import Records</span>
-                </>
-              )}
-            </button>
+            <div className="flex items-center space-x-4">
+              <label className="flex items-center space-x-2 text-xs text-slate-700 font-medium cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={replaceDemoData}
+                  onChange={(e) => setReplaceDemoData(e.target.checked)}
+                  className="w-4 h-4 rounded text-teal-600 focus:ring-teal-500 border-slate-300 cursor-pointer"
+                />
+                <span>
+                  {storageService.getIsDemoMode()
+                    ? 'Replace sample demo data with this upload'
+                    : 'Reset and replace previous reports (uncheck to keep existing reports)'}
+                </span>
+              </label>
+
+              <button
+                onClick={handleConfirmImport}
+                disabled={
+                  importStatus === 'importing' ||
+                  validationResult.successfullyImportedRows === 0 ||
+                  validationResult.missingRequiredFields.length > 0
+                }
+                className="px-6 py-2.5 bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700 text-slate-950 font-extrabold text-xs rounded-lg transition flex items-center space-x-2 shadow-sm disabled:opacity-50"
+              >
+                {importStatus === 'importing' ? (
+                  <>
+                    <RotateCcw className="w-4 h-4 animate-spin" />
+                    <span>Saving to Supabase Postgres...</span>
+                  </>
+                ) : importStatus === 'success' ? (
+                  <>
+                    <Check className="w-4 h-4" />
+                    <span>Import Completed!</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Confirm & Import Records</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}
