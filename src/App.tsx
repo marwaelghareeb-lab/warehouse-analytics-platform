@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Navbar } from './components/layout/Navbar';
 import { Sidebar, PageId } from './components/layout/Sidebar';
 import { DashboardPage } from './pages/DashboardPage';
@@ -16,9 +16,19 @@ import { StockRiskRecommendationsPage } from './pages/StockRiskRecommendationsPa
 import { ReportsCenterPage } from './pages/ReportsCenterPage';
 import { UploadHistoryPage } from './pages/UploadHistoryPage';
 import { AdminPanelPage } from './pages/AdminPanelPage';
+import { storageService } from './services/storageService';
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState<PageId>('dashboard');
+  const [customPageTitle, setCustomPageTitle] = useState<string | null>(storageService.getCustomPageTitle());
+
+  useEffect(() => {
+    const update = () => {
+      setCustomPageTitle(storageService.getCustomPageTitle());
+    };
+    const unsub = storageService.subscribe(update);
+    return unsub;
+  }, []);
 
   const getPageTitle = (page: PageId) => {
     switch (page) {
@@ -51,8 +61,11 @@ export default function App() {
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans antialiased selection:bg-teal-500 selection:text-white">
       {/* Top Navbar */}
       <Navbar
-        onNavigateToUpload={() => setCurrentPage('upload')}
-        activePageTitle={getPageTitle(currentPage)}
+        onNavigateToUpload={() => {
+          storageService.setCustomPageTitle(null);
+          setCurrentPage('upload');
+        }}
+        activePageTitle={customPageTitle || getPageTitle(currentPage)}
       />
 
       {/* Main Workspace Body */}
@@ -60,7 +73,10 @@ export default function App() {
         {/* Left Enterprise Navigation Sidebar */}
         <Sidebar
           currentPage={currentPage}
-          onSelectPage={(page) => setCurrentPage(page)}
+          onSelectPage={(page) => {
+            storageService.setCustomPageTitle(null);
+            setCurrentPage(page);
+          }}
         />
 
         {/* Content Viewport */}

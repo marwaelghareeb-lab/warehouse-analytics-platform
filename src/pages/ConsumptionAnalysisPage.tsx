@@ -91,6 +91,29 @@ export const ConsumptionAnalysisPage: React.FC = () => {
     .sort((a, b) => b.valueSAR - a.valueSAR)
     .slice(0, 10);
 
+  // Top 10 consumed items by Quantity (Volume) - Transferred from Inventory Analysis as requested
+  const itemQtyMap = new Map<string, { code: string; desc: string; category: string; quantity: number; unit: string; valueSAR: number }>();
+  consumptions.forEach((c) => {
+    const existing = itemQtyMap.get(c.itemCode);
+    if (!existing) {
+      itemQtyMap.set(c.itemCode, {
+        code: c.itemCode,
+        desc: c.itemDescription || c.itemCode,
+        category: c.category || 'General',
+        quantity: c.quantityConsumed || 0,
+        unit: c.unit || 'Unit',
+        valueSAR: c.totalConsumptionValue || 0,
+      });
+    } else {
+      existing.quantity += (c.quantityConsumed || 0);
+      existing.valueSAR += (c.totalConsumptionValue || 0);
+    }
+  });
+
+  const top10ByQuantity = Array.from(itemQtyMap.values())
+    .sort((a, b) => b.quantity - a.quantity)
+    .slice(0, 10);
+
   // Department Distribution for Chart
   const deptMap = new Map<string, number>();
   consumptions.forEach((c) => {
@@ -111,6 +134,8 @@ export const ConsumptionAnalysisPage: React.FC = () => {
     .filter((s) => !consumedItemCodes.has(s.itemCode) || s.quantityOnHand > 5000)
     .slice(0, 6);
 
+  const pageTitle = storageService.getCustomPageTitle() || 'Clinical Consumption Analysis';
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -122,11 +147,11 @@ export const ConsumptionAnalysisPage: React.FC = () => {
             </span>
             <h1 className="text-xl font-black text-slate-900 tracking-tight flex items-center space-x-1.5 flex-wrap">
               <span className="font-brand font-black tracking-tight brand-gradient-light text-2xl">Inventra</span>
-              <span className="text-slate-900 font-bold">Clinical Consumption Analysis</span>
+              <span className="text-slate-900 font-bold">{pageTitle}</span>
             </h1>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            Tracks historical ward issues, department burn rate, and top pharmaceutical/surgical cost drivers.
+            Tracks historical ward issues, department burn rate, and top pharmaceutical/surgical cost and volume drivers.
           </p>
         </div>
 
@@ -163,21 +188,89 @@ export const ConsumptionAnalysisPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Top Consumed Items Chart */}
-        <div className="lg:col-span-2 bg-white border border-slate-200 rounded-xl p-5 shadow-xs">
-          <div className="flex items-center justify-between mb-4">
+      {/* Dual Ranking Charts: Top 10 by Quantity (Transferred) & Top 10 by Value (SAR) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Chart 1: Top 10 Consumed Items by Quantity (Transferred as requested) */}
+        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-3">
             <div>
-              <h2 className="font-bold text-sm text-slate-900 uppercase tracking-wider">
-                Top 10 Consumed Items by Value (SAR)
-              </h2>
-              <p className="text-xs text-slate-500">
-                Highest clinical expenditure items in the active period
+              <div className="flex items-center space-x-2">
+                <h2 className="font-bold text-sm text-slate-900 uppercase tracking-wider">
+                  Top 10 Consumed Items by Quantity
+                </h2>
+                <span className="text-[10px] bg-sky-100 text-sky-800 font-extrabold px-1.5 py-0.5 rounded uppercase">
+                  Volume Basis
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Highest physical turnover items issued across hospital wards
               </p>
             </div>
-            <span className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-semibold">
-              Top 10
+            <span className="text-xs bg-sky-50 text-sky-700 border border-sky-200 px-2 py-0.5 rounded font-semibold">
+              Dispensed Units
+            </span>
+          </div>
+
+          <div className="h-72 w-full">
+            {top10ByQuantity.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={top10ByQuantity}
+                  layout="vertical"
+                  margin={{ top: 5, right: 30, left: 35, bottom: 5 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+                  <XAxis
+                    type="number"
+                    tick={{ fontSize: 10 }}
+                    tickFormatter={(val) => (val >= 1000 ? `${(val / 1000).toFixed(1)}k` : val)}
+                  />
+                  <YAxis
+                    type="category"
+                    dataKey="code"
+                    tick={{ fontSize: 10, fill: '#334155', fontWeight: 600 }}
+                    width={65}
+                  />
+                  <Tooltip
+                    formatter={(val: any, _name: any, item: any) => [
+                      `${Number(val).toLocaleString()} ${item.payload.unit} (${formatSAR(item.payload.valueSAR)})`,
+                      'Consumed Quantity',
+                    ]}
+                    labelFormatter={(label) => {
+                      const found = top10ByQuantity.find((i) => i.code === label);
+                      return `${label}: ${found?.desc || ''}`;
+                    }}
+                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#fff', borderRadius: '8px', fontSize: '11px' }}
+                  />
+                  <Bar dataKey="quantity" name="Consumed Quantity" fill="#0284c7" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-center p-4 text-xs text-slate-400">
+                No consumption records available
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Chart 2: Top 10 Consumed Items by Value (SAR) */}
+        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <div className="flex items-center space-x-2">
+                <h2 className="font-bold text-sm text-slate-900 uppercase tracking-wider">
+                  Top 10 Consumed Items by Value (SAR)
+                </h2>
+                <span className="text-[10px] bg-teal-100 text-teal-800 font-extrabold px-1.5 py-0.5 rounded uppercase">
+                  Expenditure
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Highest financial expenditure lines consumed during the reporting period
+              </p>
+            </div>
+            <span className="text-xs bg-teal-50 text-teal-700 border border-teal-200 px-2 py-0.5 rounded font-semibold">
+              Currency: SAR
             </span>
           </div>
 
@@ -186,87 +279,91 @@ export const ConsumptionAnalysisPage: React.FC = () => {
               <BarChart
                 data={top10ByValue}
                 layout="vertical"
-                margin={{ top: 5, right: 30, left: 40, bottom: 5 }}
+                margin={{ top: 5, right: 30, left: 35, bottom: 5 }}
               >
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
                 <XAxis
                   type="number"
                   stroke="#64748b"
-                  fontSize={11}
+                  fontSize={10}
                   tickFormatter={(val) => `${(val / 1000).toFixed(0)}k`}
                 />
                 <YAxis
                   type="category"
                   dataKey="code"
                   stroke="#64748b"
-                  fontSize={11}
+                  fontSize={10}
                   tickLine={false}
+                  width={65}
                 />
                 <Tooltip
-                  formatter={(val: any) => [`${Number(val).toLocaleString()} SAR`]}
+                  formatter={(val: any) => [`${Number(val).toLocaleString()} SAR`, 'Total Value']}
                   labelFormatter={(code) => {
                     const item = top10ByValue.find((i) => i.code === code);
                     return item ? `${item.code} - ${item.desc}` : code;
                   }}
-                  contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#fff', borderRadius: '8px' }}
+                  contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#fff', borderRadius: '8px', fontSize: '11px' }}
                 />
                 <Bar dataKey="valueSAR" name="Expenditure (SAR)" fill="#0d9488" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
+      </div>
 
-        {/* Department Consumption Distribution */}
-        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <h2 className="font-bold text-sm text-slate-900 uppercase tracking-wider">
-                Department Utilization
-              </h2>
-              <span className="text-[11px] text-teal-700 bg-teal-50 px-2 py-0.5 rounded font-semibold">
-                Share
-              </span>
-            </div>
-            <p className="text-xs text-slate-500 mb-3">
-              Consumption distribution across hospital wards
-            </p>
+      {/* Row: Department Utilization Distribution */}
+      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center space-x-2">
+            <Building2 className="w-4 h-4 text-teal-600" />
+            <h2 className="font-bold text-sm text-slate-900 uppercase tracking-wider">
+              Department Clinical Utilization
+            </h2>
+          </div>
+          <span className="text-[11px] text-teal-700 bg-teal-50 px-2 py-0.5 rounded font-semibold border border-teal-200">
+            Ward Breakdown
+          </span>
+        </div>
+        <p className="text-xs text-slate-500 mb-4">
+          Clinical consumption distribution and expenditure across hospital departments
+        </p>
 
-            <div className="h-52 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={deptData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={45}
-                    outerRadius={75}
-                    paddingAngle={3}
-                    dataKey="value"
-                  >
-                    {deptData.map((_entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    formatter={(val: any) => [`${Number(val).toLocaleString()} SAR`]}
-                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#fff', borderRadius: '8px' }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-center">
+          <div className="lg:col-span-1 h-56 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={deptData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={45}
+                  outerRadius={75}
+                  paddingAngle={3}
+                  dataKey="value"
+                >
+                  {deptData.map((_entry, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip
+                  formatter={(val: any) => [`${Number(val).toLocaleString()} SAR`]}
+                  contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#fff', borderRadius: '8px' }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
           </div>
 
-          <div className="space-y-1.5 border-t border-slate-100 pt-3">
-            {deptData.slice(0, 4).map((d, idx) => (
-              <div key={d.name} className="flex items-center justify-between text-xs text-slate-600">
-                <div className="flex items-center space-x-1.5 truncate max-w-[170px]">
+          <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            {deptData.map((d, idx) => (
+              <div key={d.name} className="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-200/80 rounded-lg text-xs text-slate-600">
+                <div className="flex items-center space-x-2 truncate mr-2">
                   <span
                     className="w-2.5 h-2.5 rounded-full shrink-0"
                     style={{ backgroundColor: COLORS[idx % COLORS.length] }}
                   />
-                  <span className="truncate">{d.name}</span>
+                  <span className="truncate font-medium text-slate-800">{d.name}</span>
                 </div>
-                <span className="font-semibold text-slate-800">{formatSAR(d.value)}</span>
+                <span className="font-mono font-bold text-teal-800 shrink-0">{formatSAR(d.value)}</span>
               </div>
             ))}
           </div>

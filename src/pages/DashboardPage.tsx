@@ -162,103 +162,165 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
         </div>
       </div>
 
-      {/* Row 1: Primary Snapshot KPI Cards (5 Cards as requested) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      {/* Row 1: Primary Snapshot KPI Cards (Expanded with Non-Moving & >90d Overstock) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3.5">
         {/* 1. Total Items */}
-        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs hover:border-slate-300 transition">
+        <div
+          onClick={() => {
+            storageService.setCustomPageTitle('Total SKUs - Inventory Master');
+            storageService.setInventoryStatusFilter('ALL');
+            onNavigate('inventory');
+          }}
+          title="Click to view all inventory items"
+          className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-xs hover:border-teal-400 cursor-pointer transition group"
+        >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Items</span>
-            <div className="w-8 h-8 rounded-lg bg-teal-50 text-teal-700 flex items-center justify-center">
-              <Boxes className="w-4 h-4" />
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Total SKUs</span>
+            <div className="w-7 h-7 rounded-lg bg-teal-50 text-teal-700 flex items-center justify-center group-hover:scale-105 transition">
+              <Boxes className="w-3.5 h-3.5" />
             </div>
           </div>
-          <div className="mt-3">
-            <div className="text-2xl font-extrabold text-slate-900">
+          <div className="mt-2.5">
+            <div className="text-xl font-black text-slate-900">
               {kpi.totalItems.toLocaleString()}
             </div>
-            <div className="flex items-center text-[11px] text-slate-500 mt-1">
-              <span>Catalogued hospital SKUs</span>
+            <div className="text-[10px] text-slate-500 mt-0.5 truncate flex items-center justify-between">
+              <span>Unique hospital codes</span>
+              <span className="opacity-0 group-hover:opacity-100 transition text-[9px] text-teal-800 font-bold">View list →</span>
             </div>
           </div>
         </div>
 
         {/* 2. Total Stock Value (SAR) */}
-        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs hover:border-slate-300 transition">
+        <div
+          onClick={() => {
+            storageService.setCustomPageTitle('Total Stock Valuation');
+            storageService.setInventoryStatusFilter('ALL');
+            onNavigate('inventory');
+          }}
+          title="Click to view inventory valuation details"
+          className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-xs hover:border-emerald-400 cursor-pointer transition group"
+        >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Stock Value (SAR)</span>
-            <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center">
-              <DollarSign className="w-4 h-4" />
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Stock Value</span>
+            <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center group-hover:scale-105 transition">
+              <DollarSign className="w-3.5 h-3.5" />
             </div>
           </div>
-          <div className="mt-3">
-            <div className="text-2xl font-extrabold text-slate-900 truncate" title={formatSAR(kpi.totalStockValueSAR)}>
+          <div className="mt-2.5">
+            <div className="text-xl font-black text-slate-900 truncate" title={formatSAR(kpi.totalStockValueSAR)}>
               {formatSAR(kpi.totalStockValueSAR)}
             </div>
-            <div className="flex items-center text-[11px] text-emerald-600 font-medium mt-1">
-              <span>On-hand valuation</span>
+            <div className="text-[10px] text-emerald-600 font-medium mt-0.5 flex items-center justify-between">
+              <span>On-hand valuation (SAR)</span>
+              <span className="opacity-0 group-hover:opacity-100 transition text-[9px] text-emerald-800 font-bold">View list →</span>
             </div>
           </div>
         </div>
 
         {/* 3. Low Stock Items */}
         <div
-          onClick={() => onNavigate('risks')}
-          className="bg-white border border-amber-200 rounded-xl p-4 shadow-xs hover:border-amber-400 cursor-pointer transition group"
+          onClick={() => {
+            storageService.setCustomPageTitle('Low Stock Items (Critical Buffer)');
+            storageService.setInventoryStatusFilter('low_stock');
+            onNavigate('inventory');
+          }}
+          title="Click to view detailed low stock items in Inventory Analysis"
+          className="bg-white border border-amber-200 rounded-xl p-3.5 shadow-xs hover:border-amber-400 cursor-pointer transition group"
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-amber-800 uppercase tracking-wider">Low Stock Items</span>
-            <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center group-hover:scale-105 transition">
-              <AlertOctagon className="w-4 h-4" />
+            <span className="text-[11px] font-bold text-amber-800 uppercase tracking-wider">Low Stock</span>
+            <div className="w-7 h-7 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center group-hover:scale-105 transition">
+              <AlertOctagon className="w-3.5 h-3.5" />
             </div>
           </div>
-          <div className="mt-3">
-            <div className="text-2xl font-extrabold text-amber-900">
+          <div className="mt-2.5">
+            <div className="text-xl font-black text-amber-900">
               {kpi.lowStockItemsCount}
             </div>
-            <div className="flex items-center text-[11px] text-amber-700 font-semibold mt-1">
-              <span>Under minimum buffer stock</span>
+            <div className="text-[10px] text-amber-700 font-semibold mt-0.5 flex items-center justify-between">
+              <span>Under buffer point</span>
+              <span className="opacity-0 group-hover:opacity-100 transition text-[9px] text-amber-800 font-bold">View list →</span>
             </div>
           </div>
         </div>
 
         {/* 4. Near Expiry Items */}
         <div
-          onClick={() => onNavigate('expiry')}
-          className="bg-white border border-rose-200 rounded-xl p-4 shadow-xs hover:border-rose-400 cursor-pointer transition group"
+          onClick={() => {
+            storageService.setCustomPageTitle('Near Expiry Items (≤90 Days)');
+            onNavigate('expiry');
+          }}
+          title="Click to view expiry timeline and FEFO breakdown"
+          className="bg-white border border-rose-200 rounded-xl p-3.5 shadow-xs hover:border-rose-400 cursor-pointer transition group"
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-rose-800 uppercase tracking-wider">Near Expiry (≤90d)</span>
-            <div className="w-8 h-8 rounded-lg bg-rose-50 text-rose-700 flex items-center justify-center group-hover:scale-105 transition">
-              <ClockAlert className="w-4 h-4" />
+            <span className="text-[11px] font-bold text-rose-800 uppercase tracking-wider">Near Expiry</span>
+            <div className="w-7 h-7 rounded-lg bg-rose-50 text-rose-700 flex items-center justify-center group-hover:scale-105 transition">
+              <ClockAlert className="w-3.5 h-3.5" />
             </div>
           </div>
-          <div className="mt-3">
-            <div className="text-2xl font-extrabold text-rose-900">
+          <div className="mt-2.5">
+            <div className="text-xl font-black text-rose-900">
               {kpi.nearExpiryItemsCount}
             </div>
-            <div className="flex items-center text-[11px] text-rose-700 font-semibold mt-1">
-              <span>Requires FEFO dispatch</span>
+            <div className="text-[10px] text-rose-700 font-semibold mt-0.5 flex items-center justify-between">
+              <span>≤90 days to expiry</span>
+              <span className="opacity-0 group-hover:opacity-100 transition text-[9px] text-rose-800 font-bold">View list →</span>
             </div>
           </div>
         </div>
 
-        {/* 5. Overstock Items */}
+        {/* 5. Non-Moving Items (30 Days) - Filter in Inventory Analysis */}
         <div
-          onClick={() => onNavigate('risks')}
-          className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs hover:border-slate-300 cursor-pointer transition"
+          onClick={() => {
+            storageService.setCustomPageTitle('Non-Moving Items (30 Days)');
+            storageService.setInventoryStatusFilter('non_moving');
+            onNavigate('inventory');
+          }}
+          title="Click to view detailed list of Non-Moving items in Inventory Analysis"
+          className="bg-white border border-orange-200 rounded-xl p-3.5 shadow-xs hover:border-orange-400 cursor-pointer transition group"
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Overstock Items</span>
-            <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-700 flex items-center justify-center">
-              <Archive className="w-4 h-4" />
+            <span className="text-[11px] font-bold text-orange-900 uppercase tracking-wider">Non-Moving (30d)</span>
+            <div className="w-7 h-7 rounded-lg bg-orange-50 text-orange-700 flex items-center justify-center group-hover:scale-105 transition">
+              <TrendingDown className="w-3.5 h-3.5" />
             </div>
           </div>
-          <div className="mt-3">
-            <div className="text-2xl font-extrabold text-slate-900">
-              {kpi.overstockItemsCount}
+          <div className="mt-2.5">
+            <div className="text-xl font-black text-orange-900">
+              {kpi.nonMoving30DaysCount}
             </div>
-            <div className="flex items-center text-[11px] text-indigo-600 font-medium mt-1">
-              <span>Excess capital tied</span>
+            <div className="text-[10px] text-orange-700 font-semibold mt-0.5 flex items-center justify-between">
+              <span className="truncate" title={`Valuation: ${formatSAR(kpi.nonMoving30DaysValueSAR)}`}>Zero issues in 30d</span>
+              <span className="opacity-0 group-hover:opacity-100 transition text-[9px] text-orange-800 font-bold shrink-0 ml-1">View list →</span>
+            </div>
+          </div>
+        </div>
+
+        {/* 6. Overstock Items (>90 Days Coverage: Stock > Monthly Consumption * 3) - Filter in Inventory Analysis */}
+        <div
+          onClick={() => {
+            storageService.setCustomPageTitle('Overstock Items (>90 Days Coverage)');
+            storageService.setInventoryStatusFilter('overstock');
+            onNavigate('inventory');
+          }}
+          title="Click to view detailed list of Overstock items in Inventory Analysis"
+          className="bg-white border border-indigo-200 rounded-xl p-3.5 shadow-xs hover:border-indigo-400 cursor-pointer transition group"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-indigo-900 uppercase tracking-wider">Overstock (&gt;90d)</span>
+            <div className="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-700 flex items-center justify-center group-hover:scale-105 transition">
+              <Archive className="w-3.5 h-3.5" />
+            </div>
+          </div>
+          <div className="mt-2.5">
+            <div className="text-xl font-black text-indigo-900">
+              {kpi.overstock90DaysCount}
+            </div>
+            <div className="text-[10px] text-indigo-700 font-semibold mt-0.5 flex items-center justify-between">
+              <span className="truncate" title={`Valuation: ${formatSAR(kpi.overstock90DaysValueSAR)} | Stock > 3x Monthly Consumption`}>&gt;3x monthly usage</span>
+              <span className="opacity-0 group-hover:opacity-100 transition text-[9px] text-indigo-800 font-bold shrink-0 ml-1">View list →</span>
             </div>
           </div>
         </div>
@@ -267,72 +329,112 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
       {/* Row 2: Secondary Monthly Flow Metrics (Specific user requested items) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {/* Monthly Receiving Amount */}
-        <div className="bg-slate-900 text-white rounded-xl p-4 border border-slate-800 shadow-xs">
+        <div
+          onClick={() => {
+            storageService.setCustomPageTitle('Monthly Receiving Analysis');
+            onNavigate('receiving');
+          }}
+          title="Click to view receiving breakdown"
+          className="bg-slate-900 text-white rounded-xl p-4 border border-slate-800 shadow-xs cursor-pointer hover:border-teal-500 transition group"
+        >
           <div className="flex items-center justify-between text-xs text-slate-400">
             <span className="font-semibold uppercase">Monthly Receiving</span>
-            <TrendingUp className="w-4 h-4 text-teal-400" />
+            <TrendingUp className="w-4 h-4 text-teal-400 group-hover:scale-110 transition" />
           </div>
           <div className="mt-2 text-xl font-bold text-white truncate" title={formatSAR(kpi.monthlyReceivingAmountSAR)}>
             {formatSAR(kpi.monthlyReceivingAmountSAR)}
           </div>
-          <div className="text-[11px] text-teal-400 font-medium mt-1">
-            Inbound vendor GRN value
+          <div className="text-[11px] text-teal-400 font-medium mt-1 flex items-center justify-between">
+            <span>Inbound vendor GRN value</span>
+            <span className="opacity-0 group-hover:opacity-100 transition text-[9px] text-teal-300 font-bold">Details →</span>
           </div>
         </div>
 
         {/* Monthly Issuing Amount */}
-        <div className="bg-slate-900 text-white rounded-xl p-4 border border-slate-800 shadow-xs">
+        <div
+          onClick={() => {
+            storageService.setCustomPageTitle('Clinical Consumption Analysis');
+            onNavigate('consumption');
+          }}
+          title="Click to view consumption breakdown"
+          className="bg-slate-900 text-white rounded-xl p-4 border border-slate-800 shadow-xs cursor-pointer hover:border-sky-500 transition group"
+        >
           <div className="flex items-center justify-between text-xs text-slate-400">
             <span className="font-semibold uppercase">Monthly Issuing</span>
-            <TrendingDown className="w-4 h-4 text-sky-400" />
+            <TrendingDown className="w-4 h-4 text-sky-400 group-hover:scale-110 transition" />
           </div>
           <div className="mt-2 text-xl font-bold text-white truncate" title={formatSAR(kpi.monthlyIssuingAmountSAR)}>
             {formatSAR(kpi.monthlyIssuingAmountSAR)}
           </div>
-          <div className="text-[11px] text-sky-400 font-medium mt-1">
-            Ward & clinical consumption
+          <div className="text-[11px] text-sky-400 font-medium mt-1 flex items-center justify-between">
+            <span>Ward & clinical consumption</span>
+            <span className="opacity-0 group-hover:opacity-100 transition text-[9px] text-sky-300 font-bold">Details →</span>
           </div>
         </div>
 
         {/* GRNs Done per Month */}
-        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs">
+        <div
+          onClick={() => {
+            storageService.setCustomPageTitle('Goods Received Notes (GRN)');
+            onNavigate('receiving');
+          }}
+          title="Click to view GRN documents"
+          className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs cursor-pointer hover:border-teal-400 transition group"
+        >
           <div className="flex items-center justify-between text-xs text-slate-500">
             <span className="font-semibold uppercase">GRNs Processed</span>
-            <FileCheck2 className="w-4 h-4 text-teal-600" />
+            <FileCheck2 className="w-4 h-4 text-teal-600 group-hover:scale-110 transition" />
           </div>
           <div className="mt-2 text-xl font-bold text-slate-900">
             {kpi.grnDoneCount}
           </div>
-          <div className="text-[11px] text-slate-500 mt-1">
-            Goods Received Notes
+          <div className="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
+            <span>Goods Received Notes</span>
+            <span className="opacity-0 group-hover:opacity-100 transition text-[9px] text-teal-700 font-bold">Details →</span>
           </div>
         </div>
 
         {/* PRs Raised */}
-        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs">
+        <div
+          onClick={() => {
+            storageService.setCustomPageTitle('Purchase Requisitions (PR)');
+            onNavigate('receiving');
+          }}
+          title="Click to view PR flows"
+          className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs cursor-pointer hover:border-indigo-400 transition group"
+        >
           <div className="flex items-center justify-between text-xs text-slate-500">
             <span className="font-semibold uppercase">PRs Raised</span>
-            <FileText className="w-4 h-4 text-indigo-600" />
+            <FileText className="w-4 h-4 text-indigo-600 group-hover:scale-110 transition" />
           </div>
           <div className="mt-2 text-xl font-bold text-slate-900">
             {kpi.prRaisedCount}
           </div>
-          <div className="text-[11px] text-slate-500 mt-1">
-            Purchase Requisitions
+          <div className="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
+            <span>Purchase Requisitions</span>
+            <span className="opacity-0 group-hover:opacity-100 transition text-[9px] text-indigo-700 font-bold">Details →</span>
           </div>
         </div>
 
         {/* Number of Items Received */}
-        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs">
+        <div
+          onClick={() => {
+            storageService.setCustomPageTitle('Goods Received Volume');
+            onNavigate('receiving');
+          }}
+          title="Click to view received items"
+          className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs cursor-pointer hover:border-emerald-400 transition group"
+        >
           <div className="flex items-center justify-between text-xs text-slate-500">
             <span className="font-semibold uppercase">Items Received</span>
-            <PackageCheck className="w-4 h-4 text-emerald-600" />
+            <PackageCheck className="w-4 h-4 text-emerald-600 group-hover:scale-110 transition" />
           </div>
           <div className="mt-2 text-xl font-bold text-slate-900">
             {kpi.itemsReceivedCount.toLocaleString()}
           </div>
-          <div className="text-[11px] text-slate-500 mt-1">
-            Total units accepted
+          <div className="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
+            <span>Physical units verified</span>
+            <span className="opacity-0 group-hover:opacity-100 transition text-[9px] text-emerald-700 font-bold">Details →</span>
           </div>
         </div>
       </div>

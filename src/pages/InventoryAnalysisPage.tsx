@@ -19,6 +19,7 @@ import {
   Settings2,
   Calendar,
   Package,
+  TrendingDown,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -36,8 +37,13 @@ import {
   StockSnapshot,
   Warehouse,
   UOMConversionRule,
+  ConsumptionRecord,
 } from '../types/warehouse';
-import { exportComprehensiveExcelReport } from '../utils/exportUtils';
+import {
+  exportComprehensiveExcelReport,
+  exportNonMovingReportExcel,
+  exportOverstockReportExcel,
+} from '../utils/exportUtils';
 import { normalizeUOMName } from '../utils/uomConverter';
 
 export const InventoryAnalysisPage: React.FC = () => {
@@ -47,7 +53,8 @@ export const InventoryAnalysisPage: React.FC = () => {
   const [warehouses, setWarehouses] = useState<Warehouse[]>(storageService.getWarehouses());
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
-  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [statusFilter, setStatusFilter] = useState(storageService.getInventoryStatusFilter());
+  const [customTitle, setCustomTitle] = useState<string | null>(storageService.getCustomPageTitle());
   const [warehouseFilter, setWarehouseFilter] = useState('ALL');
 
   // Set of expanded item codes for batch-level accordion view
@@ -59,15 +66,58 @@ export const InventoryAnalysisPage: React.FC = () => {
   const [modalToUnit, setModalToUnit] = useState('Piece');
   const [modalFactor, setModalFactor] = useState('10');
 
+  const [consumptions, setConsumptions] = useState<ConsumptionRecord[]>(
+    storageService.getConsumptionRecords()
+  );
+
   useEffect(() => {
     const update = () => {
       setAggregatedItems(storageService.getAggregatedInventory());
       setWarehouses(storageService.getWarehouses());
+      setConsumptions(storageService.getConsumptionRecords());
+      setStatusFilter(storageService.getInventoryStatusFilter());
+      setCustomTitle(storageService.getCustomPageTitle());
     };
     update();
     const unsub = storageService.subscribe(update);
     return unsub;
   }, []);
+
+  const handleStatusFilterChange = (newStatus: string) => {
+    setStatusFilter(newStatus);
+    storageService.setInventoryStatusFilter(newStatus);
+  };
+
+  const handleExportAll = () => {
+    const kpi = storageService.getKPISummary();
+    exportComprehensiveExcelReport(
+      kpi,
+      storageService.getStockSnapshots(),
+      storageService.getConsumptionRecords(),
+      storageService.getReceivingRecords(),
+      storageService.getExpiryRecords(),
+      storageService.getSelectedPeriod(),
+      warehouseFilter === 'ALL' ? 'All Warehouses' : warehouseFilter
+    );
+  };
+
+  const handleExportNonMoving = () => {
+    const nonMoving = aggregatedItems.filter((i) => i.isNonMoving30Days || i.stockStatus === 'non_moving');
+    exportNonMovingReportExcel(
+      nonMoving,
+      storageService.getSelectedPeriod(),
+      warehouseFilter === 'ALL' ? 'All Warehouses' : warehouseFilter
+    );
+  };
+
+  const handleExportOverstock = () => {
+    const overstock = aggregatedItems.filter((i) => i.isOverstock90Days || i.stockStatus === 'overstock');
+    exportOverstockReportExcel(
+      overstock,
+      storageService.getSelectedPeriod(),
+      warehouseFilter === 'ALL' ? 'All Warehouses' : warehouseFilter
+    );
+  };
 
   const formatSAR = (val: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -114,7 +164,12 @@ export const InventoryAnalysisPage: React.FC = () => {
       item.batches.some((b) => b.batchNumber.toLowerCase().includes(query));
 
     const matchCategory = categoryFilter === 'ALL' || item.category === categoryFilter;
-    const matchStatus = statusFilter === 'ALL' || item.stockStatus === statusFilter;
+    const matchStatus =
+      statusFilter === 'ALL' ||
+      (statusFilter === 'non_moving' && (item.isNonMoving30Days || item.stockStatus === 'non_moving')) ||
+      (statusFilter === 'overstock' && (item.isOverstock90Days || item.stockStatus === 'overstock')) ||
+      (statusFilter === 'low_stock' && (item.stockStatus === 'low_stock' || item.stockStatus === 'stockout')) ||
+      item.stockStatus === statusFilter;
     const matchWarehouse = warehouseFilter === 'ALL' || item.warehouseCode === warehouseFilter;
 
     return matchSearch && matchCategory && matchStatus && matchWarehouse;
@@ -139,6 +194,17 @@ export const InventoryAnalysisPage: React.FC = () => {
       itemsCount: whItems.length,
     };
   });
+
+  // Inventory Valuation by Product Category
+  const categoryValueMap = new Map<string, number>();
+  aggregatedItems.forEach((i) => {
+    const cat = i.category || 'General Supplies';
+    categoryValueMap.set(cat, (categoryValueMap.get(cat) || 0) + (i.totalStockValueSAR || 0));
+  });
+  const categoryComparisonData = Array.from(categoryValueMap.entries())
+    .map(([name, totalSAR]) => ({ name, totalSAR }))
+    .sort((a, b) => b.totalSAR - a.totalSAR)
+    .slice(0, 6);
 
   // Handle saving UOM conversion rule from modal
   const handleSaveModalUOM = () => {
@@ -176,7 +242,7 @@ export const InventoryAnalysisPage: React.FC = () => {
             </span>
             <h1 className="text-xl font-black text-slate-900 tracking-tight flex items-center space-x-1.5 flex-wrap">
               <span className="font-brand font-black tracking-tight brand-gradient-light text-2xl">Inventra</span>
-              <span className="text-slate-900 font-bold">Stock Balance & Inventory Analysis</span>
+              <span className="text-slate-900 font-bold">{customTitle || 'Stock Balance & Inventory Analysis'}</span>
             </h1>
           </div>
           <p className="text-xs text-slate-500 mt-1">
@@ -184,24 +250,35 @@ export const InventoryAnalysisPage: React.FC = () => {
           </p>
         </div>
 
-        <button
-          onClick={() => {
-            const kpi = storageService.getKPISummary();
-            exportComprehensiveExcelReport(
-              kpi,
-              storageService.getStockSnapshots(),
-              storageService.getConsumptionRecords(),
-              storageService.getReceivingRecords(),
-              storageService.getExpiryRecords(),
-              storageService.getSelectedPeriod(),
-              warehouseFilter === 'ALL' ? 'All Warehouses' : warehouseFilter
-            );
-          }}
-          className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-lg transition flex items-center space-x-2 shadow-xs shrink-0 self-start md:self-auto"
-        >
-          <Download className="w-3.5 h-3.5" />
-          <span>Export Excel Report</span>
-        </button>
+        {/* Specialized Extract Buttons & Full Master Export */}
+        <div className="flex items-center flex-wrap gap-2 shrink-0">
+          <button
+            onClick={handleExportNonMoving}
+            title="Download formatted Excel report of all Non-Moving items (30d zero consumption)"
+            className="px-3 py-2 bg-orange-50 hover:bg-orange-100 text-orange-900 border border-orange-200 font-bold text-xs rounded-lg transition flex items-center space-x-1.5 shadow-2xs"
+          >
+            <Download className="w-3.5 h-3.5 text-orange-700" />
+            <span>Extract Non-Moving</span>
+          </button>
+
+          <button
+            onClick={handleExportOverstock}
+            title="Download formatted Excel report of all Overstock items (>90d coverage)"
+            className="px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-200 font-bold text-xs rounded-lg transition flex items-center space-x-1.5 shadow-2xs"
+          >
+            <Download className="w-3.5 h-3.5 text-indigo-700" />
+            <span>Extract Overstock</span>
+          </button>
+
+          <button
+            onClick={handleExportAll}
+            title="Download full multi-tab hospital warehouse analytics report"
+            className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-lg transition flex items-center space-x-1.5 shadow-xs"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Export Full Excel</span>
+          </button>
+        </div>
       </div>
 
       {/* KPI Cards (All based on aggregated normalized data) */}
@@ -243,36 +320,92 @@ export const InventoryAnalysisPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Warehouse Comparison Chart */}
-      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="font-bold text-slate-900 text-sm">Consolidated Inventory Value by Warehouse</h3>
-            <p className="text-xs text-slate-400">Total stock valuation (SAR) distributed across hospital pharmacy and supply locations</p>
+      {/* Charts Grid: Warehouse Breakdown & Top 10 Consumed Items by Quantity */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {/* Chart 1: Warehouse Comparison Chart */}
+        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h3 className="font-bold text-slate-900 text-sm">Consolidated Inventory Value by Warehouse</h3>
+              <p className="text-[11px] text-slate-400">Total stock valuation (SAR) distributed across pharmacy & depot locations</p>
+            </div>
+            <span className="text-[11px] text-teal-700 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-md font-semibold">
+              Currency: SAR
+            </span>
           </div>
-          <span className="text-xs text-slate-500 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-md font-medium">
-            Currency: SAR
-          </span>
+          <div className="h-64 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={comparisonData} margin={{ top: 10, right: 10, left: -10, bottom: 20 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                <YAxis
+                  tick={{ fontSize: 11 }}
+                  tickFormatter={(val) => `${(val / 1000).toFixed(0)}k`}
+                />
+                <Tooltip
+                  formatter={(val: any) => [formatSAR(Number(val)), 'Stock Value']}
+                  labelFormatter={(label) => {
+                    const wh = warehouses.find((w) => w.code === label);
+                    return `${label} - ${wh?.name || ''}`;
+                  }}
+                  contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#fff', borderRadius: '8px', fontSize: '11px' }}
+                />
+                <Bar dataKey="totalSAR" name="Stock Value (SAR)" fill="#0d9488" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
         </div>
-        <div className="h-60 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={comparisonData}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-              <YAxis
-                tick={{ fontSize: 11 }}
-                tickFormatter={(val) => `${(val / 1000).toFixed(0)}k`}
-              />
-              <Tooltip
-                formatter={(val: any) => [formatSAR(Number(val)), 'Stock Value']}
-                labelFormatter={(label) => {
-                  const wh = warehouses.find((w) => w.code === label);
-                  return `${label} - ${wh?.name || ''}`;
-                }}
-              />
-              <Bar dataKey="totalSAR" fill="#0d9488" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+
+        {/* Chart 2: Inventory Valuation by Product Category */}
+        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h3 className="font-bold text-slate-900 text-sm flex items-center space-x-1.5">
+                <span>Inventory Valuation by Product Category</span>
+              </h3>
+              <p className="text-[11px] text-slate-400">Total hospital capital allocated across clinical & supply categories</p>
+            </div>
+            <span className="text-[11px] text-teal-700 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-md font-semibold">
+              Category Split
+            </span>
+          </div>
+
+          <div className="h-64 w-full">
+            {categoryComparisonData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={categoryComparisonData}
+                  layout="vertical"
+                  margin={{ top: 5, right: 30, left: 35, bottom: 5 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+                  <XAxis
+                    type="number"
+                    tick={{ fontSize: 10 }}
+                    tickFormatter={(val) => `${(val / 1000).toFixed(0)}k`}
+                  />
+                  <YAxis
+                    type="category"
+                    dataKey="name"
+                    tick={{ fontSize: 10, fill: '#334155', fontWeight: 600 }}
+                    width={110}
+                    tickFormatter={(name) => (name.length > 16 ? `${name.substring(0, 15)}…` : name)}
+                  />
+                  <Tooltip
+                    formatter={(val: any) => [formatSAR(Number(val)), 'Stock Value']}
+                    labelFormatter={(label) => label}
+                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#fff', borderRadius: '8px', fontSize: '11px' }}
+                  />
+                  <Bar dataKey="totalSAR" name="Stock Value (SAR)" fill="#0284c7" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-center p-4 text-xs text-slate-400 space-y-1">
+                <Boxes className="w-6 h-6 text-slate-300" />
+                <p className="font-semibold text-slate-600">No Inventory Categories Available</p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -322,14 +455,15 @@ export const InventoryAnalysisPage: React.FC = () => {
           {/* Stock status filter */}
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            onChange={(e) => handleStatusFilterChange(e.target.value)}
             className="bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-slate-800 font-medium cursor-pointer"
           >
             <option value="ALL">All Statuses</option>
-            <option value="normal">Normal</option>
-            <option value="low_stock">Low Stock (Critical)</option>
-            <option value="overstock">Overstock</option>
-            <option value="stockout">Stockout (Zero)</option>
+            <option value="non_moving">Non-Moving (30d - Zero Consumption)</option>
+            <option value="overstock">Overstock (&gt;90d Coverage / &gt;3x Consumption)</option>
+            <option value="low_stock">Low Stock (Critical Reorder)</option>
+            <option value="stockout">Stockout (Zero Balance)</option>
+            <option value="normal">Normal Stock</option>
           </select>
         </div>
 
@@ -341,6 +475,106 @@ export const InventoryAnalysisPage: React.FC = () => {
           <span>{expandedItems.size > 0 ? 'Collapse All Batches' : 'Expand All Batches'}</span>
         </button>
       </div>
+
+      {/* Dynamic Active Filter Banner when navigated from Dashboard or selected */}
+      {statusFilter === 'non_moving' && (
+        <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-orange-900 shadow-2xs">
+          <div className="flex items-center space-x-3">
+            <div className="w-8 h-8 rounded-lg bg-orange-100 text-orange-700 flex items-center justify-center shrink-0">
+              <TrendingDown className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="font-bold text-xs flex items-center space-x-2">
+                <span>Non-Moving Items Detailed Filter Active (30-Day Window)</span>
+                <span className="bg-orange-200 text-orange-900 text-[10px] px-2 py-0.5 rounded-full font-black">
+                  {filteredItems.length} SKUs Identified
+                </span>
+              </div>
+              <p className="text-[11px] text-orange-800 mt-0.5">
+                Showing all items with stock available (&gt; 0) but <strong>zero clinical consumption</strong> recorded during the 30-day reporting window. Total locked valuation: <strong>{formatSAR(totalValuation)}</strong>. Click any row to inspect batch lots and expiry dates.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center space-x-2 shrink-0">
+            <button
+              onClick={handleExportNonMoving}
+              className="text-xs font-bold text-white bg-orange-700 hover:bg-orange-800 px-3 py-1.5 rounded-lg shadow-2xs transition flex items-center space-x-1.5"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Extract Non-Moving Report (.xlsx)</span>
+            </button>
+            <button
+              onClick={() => handleStatusFilterChange('ALL')}
+              className="text-xs font-bold text-orange-900 hover:text-orange-950 bg-white hover:bg-orange-100 border border-orange-300 px-3 py-1.5 rounded-lg shadow-2xs transition shrink-0"
+            >
+              Clear Filter
+            </button>
+          </div>
+        </div>
+      )}
+
+      {statusFilter === 'overstock' && (
+        <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-indigo-900 shadow-2xs">
+          <div className="flex items-center space-x-3">
+            <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
+              <Archive className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="font-bold text-xs flex items-center space-x-2">
+                <span>Overstock Items Detailed Filter Active (&gt;90 Days Coverage)</span>
+                <span className="bg-indigo-200 text-indigo-900 text-[10px] px-2 py-0.5 rounded-full font-black">
+                  {filteredItems.length} SKUs Identified
+                </span>
+              </div>
+              <p className="text-[11px] text-indigo-800 mt-0.5">
+                Showing items where current stock exceeds 3 months of consumption (<strong>Stock &gt; Monthly Consumption × 3</strong>). Total locked capital: <strong>{formatSAR(totalValuation)}</strong>. Click any row to inspect batch lots and usage metrics.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center space-x-2 shrink-0">
+            <button
+              onClick={handleExportOverstock}
+              className="text-xs font-bold text-white bg-indigo-700 hover:bg-indigo-800 px-3 py-1.5 rounded-lg shadow-2xs transition flex items-center space-x-1.5"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Extract Overstock Report (.xlsx)</span>
+            </button>
+            <button
+              onClick={() => handleStatusFilterChange('ALL')}
+              className="text-xs font-bold text-indigo-900 hover:text-indigo-950 bg-white hover:bg-indigo-100 border border-indigo-300 px-3 py-1.5 rounded-lg shadow-2xs transition shrink-0"
+            >
+              Clear Filter
+            </button>
+          </div>
+        </div>
+      )}
+
+      {statusFilter === 'low_stock' && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-amber-900 shadow-2xs">
+          <div className="flex items-center space-x-3">
+            <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+              <AlertOctagon className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="font-bold text-xs flex items-center space-x-2">
+                <span>Low Stock / Critical Buffer Filter Active</span>
+                <span className="bg-amber-200 text-amber-900 text-[10px] px-2 py-0.5 rounded-full font-black">
+                  {filteredItems.length} SKUs Identified
+                </span>
+              </div>
+              <p className="text-[11px] text-amber-800 mt-0.5">
+                Showing items approaching or below critical safety buffer replenishment thresholds. Total valuation: <strong>{formatSAR(totalValuation)}</strong>.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => handleStatusFilterChange('ALL')}
+            className="text-xs font-bold text-amber-900 hover:text-amber-950 bg-white hover:bg-amber-100 border border-amber-300 px-3 py-1.5 rounded-lg shadow-2xs transition shrink-0"
+          >
+            Clear Filter (Show All SKUs)
+          </button>
+        </div>
+      )}
 
       {/* Aggregated Inventory Table with Expandable Batches */}
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
@@ -448,13 +682,29 @@ export const InventoryAnalysisPage: React.FC = () => {
                           )}
                         </td>
                         <td className="py-3 px-3 text-center">
-                          {item.stockStatus === 'low_stock' ? (
+                          {item.isNonMoving30Days || item.stockStatus === 'non_moving' ? (
+                            <div className="inline-flex flex-col items-center">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange-100 text-orange-800 border border-orange-300">
+                                Non-Moving (30d)
+                              </span>
+                              <span className="text-[9px] text-orange-700 font-semibold mt-0.5 whitespace-nowrap">
+                                0 issues in 30d
+                              </span>
+                            </div>
+                          ) : item.isOverstock90Days || item.stockStatus === 'overstock' ? (
+                            <div className="inline-flex flex-col items-center">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-300">
+                                Overstock (&gt;90d)
+                              </span>
+                              <span className="text-[9px] text-indigo-700 font-semibold mt-0.5 whitespace-nowrap">
+                                {item.monthlyConsumption && item.monthlyConsumption > 0
+                                  ? `>3x mo. usage (${item.monthlyConsumption}/mo)`
+                                  : '>90d stock'}
+                              </span>
+                            </div>
+                          ) : item.stockStatus === 'low_stock' ? (
                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
                               Low Stock
-                            </span>
-                          ) : item.stockStatus === 'overstock' ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-300">
-                              Overstock
                             </span>
                           ) : item.stockStatus === 'stockout' ? (
                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
@@ -581,6 +831,54 @@ export const InventoryAnalysisPage: React.FC = () => {
                                     ))}
                                   </tbody>
                                 </table>
+                              </div>
+
+                              {/* Clinical Consumption & Stock Coverage Diagnostic */}
+                              <div className="bg-slate-50 rounded-xl p-3 border border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
+                                <div className="flex items-center flex-wrap gap-4 text-slate-700">
+                                  <div>
+                                    <span className="text-[10px] text-slate-500 uppercase font-bold block">30-Day Monthly Consumption</span>
+                                    <span className="font-extrabold text-slate-900 text-xs">
+                                      {item.monthlyConsumption !== undefined ? item.monthlyConsumption.toLocaleString() : 0} {item.standardUnit}
+                                    </span>
+                                  </div>
+                                  <div className="border-l border-slate-200 pl-3">
+                                    <span className="text-[10px] text-slate-500 uppercase font-bold block">Stock Coverage Ratio</span>
+                                    <span className="font-extrabold text-slate-900 text-xs">
+                                      {item.monthlyConsumption && item.monthlyConsumption > 0
+                                        ? `${(item.totalQuantity / item.monthlyConsumption).toFixed(1)} Months (${((item.totalQuantity / item.monthlyConsumption) * 30).toFixed(0)} Days)`
+                                        : item.totalQuantity > 0
+                                        ? 'Non-Moving (0 usage in 30d)'
+                                        : '0 Days'}
+                                    </span>
+                                  </div>
+                                  <div className="border-l border-slate-200 pl-3">
+                                    <span className="text-[10px] text-slate-500 uppercase font-bold block">Total Capital Locked</span>
+                                    <span className="font-mono font-extrabold text-teal-800 text-xs">
+                                      {formatSAR(item.totalStockValueSAR)}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center space-x-2">
+                                  {item.isNonMoving30Days || item.stockStatus === 'non_moving' ? (
+                                    <span className="bg-orange-100 text-orange-900 border border-orange-300 px-2.5 py-1 rounded-lg text-[11px] font-bold">
+                                      Action: Recommend inter-department transfer or vendor return
+                                    </span>
+                                  ) : item.isOverstock90Days || item.stockStatus === 'overstock' ? (
+                                    <span className="bg-indigo-100 text-indigo-900 border border-indigo-300 px-2.5 py-1 rounded-lg text-[11px] font-bold">
+                                      Action: Pause new PRs & prioritize clinical consumption
+                                    </span>
+                                  ) : item.stockStatus === 'low_stock' ? (
+                                    <span className="bg-amber-100 text-amber-900 border border-amber-300 px-2.5 py-1 rounded-lg text-[11px] font-bold">
+                                      Action: Issue Purchase Requisition (PR) to avoid stockout
+                                    </span>
+                                  ) : (
+                                    <span className="bg-emerald-100 text-emerald-900 border border-emerald-300 px-2.5 py-1 rounded-lg text-[11px] font-bold">
+                                      Stock Level: Optimal & balanced
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           </td>

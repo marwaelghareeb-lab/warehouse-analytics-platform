@@ -56,6 +56,8 @@ class StorageService {
   private isDemoMode: boolean = true;
   private selectedWarehouse: string = 'ALL';
   private selectedPeriod: string = '2026-10';
+  private inventoryStatusFilter: string = 'ALL';
+  private customPageTitle: string | null = null;
 
   constructor() {
     this.init();
@@ -160,6 +162,24 @@ class StorageService {
 
   public setSelectedPeriod(period: string) {
     this.selectedPeriod = period;
+    notify();
+  }
+
+  public getInventoryStatusFilter(): string {
+    return this.inventoryStatusFilter;
+  }
+
+  public setInventoryStatusFilter(filter: string) {
+    this.inventoryStatusFilter = filter;
+    notify();
+  }
+
+  public getCustomPageTitle(): string | null {
+    return this.customPageTitle;
+  }
+
+  public setCustomPageTitle(title: string | null) {
+    this.customPageTitle = title;
     notify();
   }
 
@@ -408,6 +428,14 @@ class StorageService {
 
     const aggregatedList: AggregatedInventoryItem[] = [];
 
+    // Build monthly consumption map for active period/warehouse
+    const consumptions = this.getConsumptionRecords();
+    const itemMonthlyConsumptionMap = new Map<string, number>();
+    consumptions.forEach((c) => {
+      const current = itemMonthlyConsumptionMap.get(c.itemCode) || 0;
+      itemMonthlyConsumptionMap.set(c.itemCode, current + (c.quantityConsumed || 0));
+    });
+
     itemGroups.forEach((batchRows) => {
       if (batchRows.length === 0) return;
       const first = batchRows[0];
@@ -493,10 +521,20 @@ class StorageService {
       // Check if any batch needs UOM configuration
       const conversionRequired = batches.some((b) => b.conversionStatus === 'conversion_required');
 
+      // Calculate monthly consumption for this item
+      const monthlyConsumed = itemMonthlyConsumptionMap.get(itemCode) || 0;
+      const isNonMoving30Days = totalQuantity > 0 && monthlyConsumed === 0;
+      const isOverstock90Days = totalQuantity > 0 && (
+        monthlyConsumed > 0
+          ? totalQuantity > (monthlyConsumed * 3)
+          : totalQuantity > 6000
+      );
+
       let stockStatus: StockStatus = 'normal';
       if (totalQuantity <= 0) stockStatus = 'stockout';
+      else if (isNonMoving30Days) stockStatus = 'non_moving';
+      else if (isOverstock90Days) stockStatus = 'overstock';
       else if (totalQuantity < 300) stockStatus = 'low_stock';
-      else if (totalQuantity > 6000) stockStatus = 'overstock';
 
       aggregatedList.push({
         itemCode,
@@ -515,6 +553,9 @@ class StorageService {
         stockStatus,
         conversionRequired,
         namePatternFactor,
+        monthlyConsumption: monthlyConsumed,
+        isNonMoving30Days,
+        isOverstock90Days,
       });
     });
 
@@ -533,7 +574,22 @@ class StorageService {
     const lowStockItemsCount = aggregated.filter(
       (s) => s.stockStatus === 'low_stock' || s.stockStatus === 'stockout'
     ).length;
-    const overstockItemsCount = aggregated.filter((s) => s.stockStatus === 'overstock').length;
+    // 1. Consumption map by item code
+    const itemMonthlyConsumptionMap = new Map<string, number>();
+    consumptions.forEach((c) => {
+      const current = itemMonthlyConsumptionMap.get(c.itemCode) || 0;
+      itemMonthlyConsumptionMap.set(c.itemCode, current + (c.quantityConsumed || 0));
+    });
+
+    // 2. Non-moving items for 30 days: items with stock available (>0) but zero consumption or absent from consumption sheet
+    const nonMovingItems = aggregated.filter((item) => item.isNonMoving30Days || item.stockStatus === 'non_moving');
+    const nonMoving30DaysCount = nonMovingItems.length;
+    const nonMoving30DaysValueSAR = nonMovingItems.reduce((acc, curr) => acc + (curr.totalStockValueSAR || 0), 0);
+
+    // 3. Overstock (>90 days stock coverage = stock > monthly consumption * 3):
+    const overstock90DaysItems = aggregated.filter((item) => item.isOverstock90Days || item.stockStatus === 'overstock');
+    const overstock90DaysCount = overstock90DaysItems.length;
+    const overstock90DaysValueSAR = overstock90DaysItems.reduce((acc, curr) => acc + (curr.totalStockValueSAR || 0), 0);
 
     // Near expiry items count (< 90 days or already expired from expiry records or batch records)
     const nearExpiryFromExpiries = expiries.filter((e) => e.daysUntilExpiry <= 90).length;
@@ -556,7 +612,11 @@ class StorageService {
       totalStockValueSAR,
       lowStockItemsCount,
       nearExpiryItemsCount,
-      overstockItemsCount,
+      overstockItemsCount: overstock90DaysCount,
+      nonMoving30DaysCount,
+      nonMoving30DaysValueSAR,
+      overstock90DaysCount,
+      overstock90DaysValueSAR,
       monthlyReceivingAmountSAR,
       monthlyIssuingAmountSAR,
       grnDoneCount: grnSet.size,

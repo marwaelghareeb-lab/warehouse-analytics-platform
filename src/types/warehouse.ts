@@ -23,7 +23,7 @@ export interface ItemMaster {
   leadTimeDays: number;
 }
 
-export type StockStatus = 'normal' | 'low_stock' | 'overstock' | 'stockout';
+export type StockStatus = 'normal' | 'low_stock' | 'overstock' | 'stockout' | 'non_moving';
 
 export interface StockSnapshot {
   id: string;
@@ -90,6 +90,9 @@ export interface AggregatedInventoryItem {
   stockStatus: StockStatus;
   conversionRequired?: boolean;
   namePatternFactor?: number;
+  monthlyConsumption?: number;
+  isNonMoving30Days?: boolean;
+  isOverstock90Days?: boolean;
 }
 
 export interface UOMConversionRule {
@@ -212,6 +215,12 @@ export interface KPISummary {
   nearExpiryItemsCount: number;
   overstockItemsCount: number;
   
+  // Specific requested non-moving and 90-day overstock calculations
+  nonMoving30DaysCount: number;
+  nonMoving30DaysValueSAR: number;
+  overstock90DaysCount: number;
+  overstock90DaysValueSAR: number;
+
   // Specific requested monthly KPI flows
   monthlyReceivingAmountSAR: number;
   monthlyIssuingAmountSAR: number;

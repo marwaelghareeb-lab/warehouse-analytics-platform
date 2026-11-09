@@ -16,8 +16,13 @@ import {
   Database,
 } from 'lucide-react';
 import { storageService } from '../services/storageService';
-import { ExecutiveSummaryResponse, KPISummary } from '../types/warehouse';
-import { exportComprehensiveExcelReport, exportPDFExecutiveBrief } from '../utils/exportUtils';
+import { KPISummary, ExecutiveSummaryResponse } from '../types/warehouse';
+import {
+  exportComprehensiveExcelReport,
+  exportPDFExecutiveBrief,
+  exportNonMovingReportExcel,
+  exportOverstockReportExcel,
+} from '../utils/exportUtils';
 
 export const ReportsCenterPage: React.FC = () => {
   const [kpi, setKpi] = useState<KPISummary>(storageService.getKPISummary());
@@ -105,16 +110,16 @@ EXECUTIVE NARRATIVE:
 ${aiSummary.executiveNarrative}
 
 HIGH CONSUMPTION:
-${aiSummary.highConsumptionHighlights.map((h) => `• ${h}`).join('\n')}
+${aiSummary.highConsumptionHighlights.map((h: string) => `• ${h}`).join('\n')}
 
 STOCK RISKS:
-${aiSummary.stockRiskAlerts.map((r) => `• ${r}`).join('\n')}
+${aiSummary.stockRiskAlerts.map((r: string) => `• ${r}`).join('\n')}
 
 FEFO ACTION POINTS:
-${aiSummary.fefoActionPoints.map((f) => `• ${f}`).join('\n')}
+${aiSummary.fefoActionPoints.map((f: string) => `• ${f}`).join('\n')}
 
 RECOMMENDATIONS:
-${aiSummary.procurementRecommendations.map((p) => `• ${p}`).join('\n')}
+${aiSummary.procurementRecommendations.map((p: string) => `• ${p}`).join('\n')}
     `.trim();
 
     navigator.clipboard.writeText(text);
@@ -138,6 +143,26 @@ ${aiSummary.procurementRecommendations.map((p) => `• ${p}`).join('\n')}
     exportPDFExecutiveBrief(
       kpi,
       aiSummary,
+      storageService.getSelectedPeriod(),
+      storageService.getSelectedWarehouse()
+    );
+  };
+
+  const handleDownloadNonMovingExcel = () => {
+    const items = storageService.getAggregatedInventory();
+    const nonMoving = items.filter((i) => i.isNonMoving30Days || i.stockStatus === 'non_moving');
+    exportNonMovingReportExcel(
+      nonMoving,
+      storageService.getSelectedPeriod(),
+      storageService.getSelectedWarehouse()
+    );
+  };
+
+  const handleDownloadOverstockExcel = () => {
+    const items = storageService.getAggregatedInventory();
+    const overstock = items.filter((i) => i.isOverstock90Days || i.stockStatus === 'overstock');
+    exportOverstockReportExcel(
+      overstock,
       storageService.getSelectedPeriod(),
       storageService.getSelectedWarehouse()
     );
@@ -177,6 +202,67 @@ ${aiSummary.procurementRecommendations.map((p) => `• ${p}`).join('\n')}
           >
             <FileText className="w-3.5 h-3.5" />
             <span>Export PDF Briefing</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Specialized Inventory Risk & Valuation Extracts */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Card 1: Non-Moving Report Extract */}
+        <div className="bg-white border border-orange-200 rounded-xl p-5 shadow-xs flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center space-x-2 text-orange-950 font-bold text-sm">
+                <TrendingDown className="w-4 h-4 text-orange-600" />
+                <span>Non-Moving Items Report (30 Days)</span>
+              </div>
+              <span className="text-[11px] font-bold bg-orange-100 text-orange-800 px-2 py-0.5 rounded">
+                {kpi.nonMoving30DaysCount} SKUs
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 leading-relaxed mb-3">
+              Identifies hospital inventory with positive stock on-hand but zero clinical consumption recorded during the 30-day reporting window.
+            </p>
+            <div className="text-xs font-semibold text-slate-700 bg-orange-50/70 p-2.5 rounded-lg border border-orange-200/60 mb-4 flex items-center justify-between">
+              <span>Tied-Up Valuation:</span>
+              <span className="font-mono font-bold text-orange-900">{formatSAR(kpi.nonMoving30DaysValueSAR)}</span>
+            </div>
+          </div>
+          <button
+            onClick={handleDownloadNonMovingExcel}
+            className="w-full py-2 bg-orange-700 hover:bg-orange-800 text-white font-bold text-xs rounded-lg transition shadow-2xs flex items-center justify-center space-x-2"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Extract Non-Moving Report (.xlsx)</span>
+          </button>
+        </div>
+
+        {/* Card 2: Overstock Report Extract */}
+        <div className="bg-white border border-indigo-200 rounded-xl p-5 shadow-xs flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center space-x-2 text-indigo-950 font-bold text-sm">
+                <Archive className="w-4 h-4 text-indigo-600" />
+                <span>Overstock Analysis Report (&gt;90 Days)</span>
+              </div>
+              <span className="text-[11px] font-bold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded">
+                {kpi.overstock90DaysCount} SKUs
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 leading-relaxed mb-3">
+              Analyzes items where available warehouse stock exceeds 3 months of consumption (Stock &gt; Monthly Consumption × 3) to prevent capital stagnation.
+            </p>
+            <div className="text-xs font-semibold text-slate-700 bg-indigo-50/70 p-2.5 rounded-lg border border-indigo-200/60 mb-4 flex items-center justify-between">
+              <span>Locked Capital Valuation:</span>
+              <span className="font-mono font-bold text-indigo-900">{formatSAR(kpi.overstock90DaysValueSAR)}</span>
+            </div>
+          </div>
+          <button
+            onClick={handleDownloadOverstockExcel}
+            className="w-full py-2 bg-indigo-700 hover:bg-indigo-800 text-white font-bold text-xs rounded-lg transition shadow-2xs flex items-center justify-center space-x-2"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Extract Overstock Report (.xlsx)</span>
           </button>
         </div>
       </div>
@@ -339,7 +425,7 @@ ${aiSummary.procurementRecommendations.map((p) => `• ${p}`).join('\n')}
                 <span>High-Consumption Highlights</span>
               </h5>
               <ul className="space-y-1.5 text-slate-600 list-disc list-inside">
-                {aiSummary.highConsumptionHighlights.map((item, idx) => (
+                {aiSummary.highConsumptionHighlights.map((item: string, idx: number) => (
                   <li key={idx} className="leading-relaxed">{item}</li>
                 ))}
               </ul>
@@ -351,7 +437,7 @@ ${aiSummary.procurementRecommendations.map((p) => `• ${p}`).join('\n')}
                 <span>Critical Stockout & Expiry Alerts</span>
               </h5>
               <ul className="space-y-1.5 text-slate-600 list-disc list-inside">
-                {aiSummary.stockRiskAlerts.map((item, idx) => (
+                {aiSummary.stockRiskAlerts.map((item: string, idx: number) => (
                   <li key={idx} className="leading-relaxed">{item}</li>
                 ))}
               </ul>
@@ -370,7 +456,7 @@ ${aiSummary.procurementRecommendations.map((p) => `• ${p}`).join('\n')}
               </span>
             </div>
             <ul className="space-y-1.5 text-teal-900 list-disc list-inside">
-              {aiSummary.procurementRecommendations.map((item, idx) => (
+              {aiSummary.procurementRecommendations.map((item: string, idx: number) => (
                 <li key={idx} className="leading-relaxed">{item}</li>
               ))}
             </ul>

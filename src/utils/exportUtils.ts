@@ -7,6 +7,7 @@ import {
   ExpiryRecord,
   KPISummary,
   ExecutiveSummaryResponse,
+  AggregatedInventoryItem,
 } from '../types/warehouse';
 
 /**
@@ -132,6 +133,197 @@ export function exportComprehensiveExcelReport(
   // Write and trigger download
   const dateTag = new Date().toISOString().split('T')[0];
   XLSX.writeFile(wb, `Inventra_Warehouse_Analytics_Report_${reportingPeriod}_${dateTag}.xlsx`);
+}
+
+/**
+ * Exports a specialized Excel report of Non-Moving items (30-day zero consumption)
+ */
+export function exportNonMovingReportExcel(
+  items: AggregatedInventoryItem[],
+  reportingPeriod: string,
+  warehouseName: string = 'All Warehouses'
+) {
+  const wb = XLSX.utils.book_new();
+  const dateTag = new Date().toISOString().split('T')[0];
+
+  const totalValue = items.reduce((sum, i) => sum + (i.totalStockValueSAR || 0), 0);
+  const totalQty = items.reduce((sum, i) => sum + (i.totalQuantity || 0), 0);
+
+  // 1. Executive Summary Tab
+  const summaryAoa = [
+    ['INVENTRA - HOSPITAL WAREHOUSE ANALYTICS PLATFORM'],
+    ['NON-MOVING INVENTORY REPORT (30-DAY ZERO CONSUMPTION)'],
+    [''],
+    ['Generated Date:', new Date().toLocaleString()],
+    ['Reporting Period:', reportingPeriod],
+    ['Scope / Warehouse:', warehouseName],
+    ['Total Non-Moving SKUs:', items.length],
+    ['Total Tied-Up Stock Valuation:', `${totalValue.toLocaleString()} SAR`],
+    ['Total Non-Moving Physical Units:', totalQty],
+    ['Criteria Definition:', 'On-hand stock > 0 with 0 clinical issues/consumption recorded during the 30-day period'],
+    [''],
+    ['RECOMMENDED SUPPLY CHAIN ACTIONS:'],
+    ['1. Perform physical inspection of non-moving batches across bins to confirm count and packaging integrity.'],
+    ['2. Initiate immediate inter-facility transfers to high-burn rate hospitals or satellite clinics.'],
+    ['3. Contact pharmaceutical/medical suppliers for return-to-vendor (RTV) or credit replacement.'],
+    ['4. Halt upcoming purchase orders for these SKUs to prevent further working capital freeze.']
+  ];
+  const wsSummary = XLSX.utils.aoa_to_sheet(summaryAoa);
+  XLSX.utils.book_append_sheet(wb, wsSummary, 'Executive Summary');
+
+  // 2. Non-Moving Items Detail Tab
+  const rows = items.map((item, idx) => ({
+    'No.': idx + 1,
+    'Item Code': item.itemCode,
+    'Item Description': item.itemDescription,
+    'Category': item.category,
+    'Warehouse': item.warehouseCode,
+    'Available Stock': item.totalQuantity,
+    'Standard UOM': item.standardUnit,
+    'Batches Count': item.batchCount,
+    'Unit Cost (SAR)': item.batches[0]?.unitCost || 0,
+    'Total Valuation (SAR)': item.totalStockValueSAR,
+    '30-Day Monthly Consumption': item.monthlyConsumption || 0,
+    'Earliest Expiry Date': item.earliestExpiryDate || 'N/A',
+    'Days to Expiry': item.earliestExpiryDays !== undefined ? item.earliestExpiryDays : 'N/A',
+    'Risk Classification': item.earliestExpiryDays !== undefined && item.earliestExpiryDays <= 90 ? 'CRITICAL (Near Expiry)' : 'Non-Moving Capital',
+    'Recommended Action': 'Inter-facility transfer, vendor return, or ward reallocation'
+  }));
+  const wsDetail = XLSX.utils.json_to_sheet(rows);
+  XLSX.utils.book_append_sheet(wb, wsDetail, 'Non-Moving SKUs');
+
+  // 3. Batch Lots Breakdown Tab
+  const batchRows: any[] = [];
+  items.forEach((item) => {
+    item.batches.forEach((b) => {
+      batchRows.push({
+        'Item Code': item.itemCode,
+        'Item Description': item.itemDescription,
+        'Warehouse': b.warehouseCode,
+        'Batch / Lot #': b.batchNumber,
+        'Expiry Date': b.expiryDate || 'N/A',
+        'Days Until Expiry': b.daysUntilExpiry !== undefined ? b.daysUntilExpiry : 'N/A',
+        'Physical Qty (Original)': b.originalQuantity,
+        'Original UOM': b.originalUnit,
+        'Converted Qty': b.convertedQuantity,
+        'Standard Base UOM': b.standardUnit,
+        'Unit Cost (SAR)': b.unitCost,
+        'Batch Value (SAR)': b.totalValueSAR,
+      });
+    });
+  });
+  if (batchRows.length > 0) {
+    const wsBatches = XLSX.utils.json_to_sheet(batchRows);
+    XLSX.utils.book_append_sheet(wb, wsBatches, 'Batch Lots Breakdown');
+  }
+
+  XLSX.writeFile(wb, `Inventra_Non_Moving_Items_Report_${reportingPeriod}_${dateTag}.xlsx`);
+}
+
+/**
+ * Exports a specialized Excel report of Overstock items (>90-day coverage / >3x monthly consumption)
+ */
+export function exportOverstockReportExcel(
+  items: AggregatedInventoryItem[],
+  reportingPeriod: string,
+  warehouseName: string = 'All Warehouses'
+) {
+  const wb = XLSX.utils.book_new();
+  const dateTag = new Date().toISOString().split('T')[0];
+
+  const totalValue = items.reduce((sum, i) => sum + (i.totalStockValueSAR || 0), 0);
+  const totalExcessValue = items.reduce((sum, i) => {
+    const monthly = i.monthlyConsumption || 0;
+    if (monthly > 0) {
+      const bufferQty = monthly * 3;
+      const excessQty = Math.max(0, i.totalQuantity - bufferQty);
+      const avgCost = i.totalQuantity > 0 ? (i.totalStockValueSAR / i.totalQuantity) : 0;
+      return sum + (excessQty * avgCost);
+    }
+    return sum + (i.totalStockValueSAR || 0);
+  }, 0);
+
+  // 1. Executive Summary Tab
+  const summaryAoa = [
+    ['INVENTRA - HOSPITAL WAREHOUSE ANALYTICS PLATFORM'],
+    ['OVERSTOCK INVENTORY ANALYSIS REPORT (>90 DAYS COVERAGE)'],
+    [''],
+    ['Generated Date:', new Date().toLocaleString()],
+    ['Reporting Period:', reportingPeriod],
+    ['Scope / Warehouse:', warehouseName],
+    ['Total Overstock SKUs:', items.length],
+    ['Total On-Hand Valuation:', `${totalValue.toLocaleString()} SAR`],
+    ['Estimated Excess Capital Locked:', `${Math.round(totalExcessValue).toLocaleString()} SAR`],
+    ['Criteria Definition:', 'Stock on Hand > (Monthly Consumption × 3) or > 90 Days Coverage'],
+    [''],
+    ['RECOMMENDED SUPPLY CHAIN ACTIONS:'],
+    ['1. Freeze purchase requisitions (PR) and purchase orders (PO) for overstock SKUs.'],
+    ['2. Prioritize consumption from existing hospital warehouse reserves before reordering.'],
+    ['3. Rebalance supply across other hospital branches facing stock shortages.'],
+    ['4. Review safety stock buffer parameters with clinical pharmacy directors.']
+  ];
+  const wsSummary = XLSX.utils.aoa_to_sheet(summaryAoa);
+  XLSX.utils.book_append_sheet(wb, wsSummary, 'Executive Summary');
+
+  // 2. Overstock Items Detail Tab
+  const rows = items.map((item, idx) => {
+    const monthly = item.monthlyConsumption || 0;
+    const coverageMonths = monthly > 0 ? (item.totalQuantity / monthly).toFixed(1) : '>12 (Zero Usage)';
+    const coverageDays = monthly > 0 ? Math.round((item.totalQuantity / monthly) * 30) : '>365';
+    const bufferQty = monthly * 3;
+    const excessQty = monthly > 0 ? Math.max(0, Math.round(item.totalQuantity - bufferQty)) : item.totalQuantity;
+    const avgCost = item.totalQuantity > 0 ? (item.totalStockValueSAR / item.totalQuantity) : 0;
+    const excessValueSAR = Math.round(excessQty * avgCost);
+
+    return {
+      'No.': idx + 1,
+      'Item Code': item.itemCode,
+      'Item Description': item.itemDescription,
+      'Category': item.category,
+      'Warehouse': item.warehouseCode,
+      'Available Stock': item.totalQuantity,
+      'Standard UOM': item.standardUnit,
+      '30-Day Monthly Consumption': monthly,
+      'Coverage (Months)': coverageMonths,
+      'Coverage (Est. Days)': coverageDays,
+      '3-Month Target Buffer Qty': monthly > 0 ? Math.round(bufferQty) : 0,
+      'Excess Quantity': excessQty,
+      'Excess Capital Locked (SAR)': excessValueSAR,
+      'Total Item Value (SAR)': item.totalStockValueSAR,
+      'Batches Count': item.batchCount,
+      'Earliest Expiry Date': item.earliestExpiryDate || 'N/A',
+      'Recommended Action': 'Pause Purchase Orders; consume internal reserves before reordering'
+    };
+  });
+  const wsDetail = XLSX.utils.json_to_sheet(rows);
+  XLSX.utils.book_append_sheet(wb, wsDetail, 'Overstock SKUs');
+
+  // 3. Batch Lots Breakdown Tab
+  const batchRows: any[] = [];
+  items.forEach((item) => {
+    item.batches.forEach((b) => {
+      batchRows.push({
+        'Item Code': item.itemCode,
+        'Item Description': item.itemDescription,
+        'Warehouse': b.warehouseCode,
+        'Batch / Lot #': b.batchNumber,
+        'Expiry Date': b.expiryDate || 'N/A',
+        'Days Until Expiry': b.daysUntilExpiry !== undefined ? b.daysUntilExpiry : 'N/A',
+        'Physical Qty (Original)': b.originalQuantity,
+        'Original UOM': b.originalUnit,
+        'Converted Qty': b.convertedQuantity,
+        'Standard Base UOM': b.standardUnit,
+        'Unit Cost (SAR)': b.unitCost,
+        'Batch Value (SAR)': b.totalValueSAR,
+      });
+    });
+  });
+  if (batchRows.length > 0) {
+    const wsBatches = XLSX.utils.json_to_sheet(batchRows);
+    XLSX.utils.book_append_sheet(wb, wsBatches, 'Batch Lots Breakdown');
+  }
+
+  XLSX.writeFile(wb, `Inventra_Overstock_Report_${reportingPeriod}_${dateTag}.xlsx`);
 }
 
 /**
