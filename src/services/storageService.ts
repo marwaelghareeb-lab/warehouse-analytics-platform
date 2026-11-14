@@ -27,6 +27,13 @@ import {
   detectNameConversionFactor,
   isBaseUnit,
 } from '../utils/uomConverter';
+import { parseSmartNumber } from '../utils/excelParser';
+
+const toSafeNum = (val: any, fallback = 0): number => {
+  if (typeof val === 'number') return Number.isFinite(val) ? val : fallback;
+  const parsed = parseSmartNumber(val);
+  return parsed.value !== null && Number.isFinite(parsed.value) ? parsed.value : fallback;
+};
 
 const STORAGE_KEYS = {
   STOCK: 'wh_analytics_stock_v2',
@@ -77,10 +84,36 @@ class StorageService {
 
       if (storedReports) {
         this.uploadedReports = JSON.parse(storedReports);
-        this.stockSnapshots = JSON.parse(localStorage.getItem(STORAGE_KEYS.STOCK) || '[]');
-        this.consumptionRecords = JSON.parse(localStorage.getItem(STORAGE_KEYS.CONSUMPTION) || '[]');
-        this.receivingRecords = JSON.parse(localStorage.getItem(STORAGE_KEYS.RECEIVING) || '[]');
-        this.expiryRecords = JSON.parse(localStorage.getItem(STORAGE_KEYS.EXPIRY) || '[]');
+        const rawStocks: StockSnapshot[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.STOCK) || '[]');
+        const rawConsumptions: ConsumptionRecord[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.CONSUMPTION) || '[]');
+        const rawReceivings: ReceivingRecord[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.RECEIVING) || '[]');
+        const rawExpiries: ExpiryRecord[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.EXPIRY) || '[]');
+
+        this.stockSnapshots = rawStocks.map((s) => ({
+          ...s,
+          quantityOnHand: toSafeNum(s.quantityOnHand, 0),
+          unitCost: toSafeNum(s.unitCost, 0),
+          totalStockValue: toSafeNum(s.totalStockValue, 0),
+          convertedQuantity: s.convertedQuantity !== undefined ? toSafeNum(s.convertedQuantity, 0) : undefined,
+        }));
+        this.consumptionRecords = rawConsumptions.map((c) => ({
+          ...c,
+          quantityConsumed: toSafeNum(c.quantityConsumed, 0),
+          unitCost: toSafeNum(c.unitCost, 0),
+          totalConsumptionValue: toSafeNum(c.totalConsumptionValue, 0),
+        }));
+        this.receivingRecords = rawReceivings.map((r) => ({
+          ...r,
+          quantityReceived: toSafeNum(r.quantityReceived, 0),
+          unitCost: toSafeNum(r.unitCost, 0),
+          totalReceivedValue: toSafeNum(r.totalReceivedValue, 0),
+        }));
+        this.expiryRecords = rawExpiries.map((e) => ({
+          ...e,
+          quantityRemaining: toSafeNum(e.quantityRemaining, 0),
+          unitCost: toSafeNum(e.unitCost, 0),
+          totalValueAtRisk: toSafeNum(e.totalValueAtRisk, 0),
+        }));
         this.isDemoMode = isDemoStored !== null ? JSON.parse(isDemoStored) : false;
       } else {
         // Load default demo data
@@ -433,7 +466,7 @@ class StorageService {
     const itemMonthlyConsumptionMap = new Map<string, number>();
     consumptions.forEach((c) => {
       const current = itemMonthlyConsumptionMap.get(c.itemCode) || 0;
-      itemMonthlyConsumptionMap.set(c.itemCode, current + (c.quantityConsumed || 0));
+      itemMonthlyConsumptionMap.set(c.itemCode, current + toSafeNum(c.quantityConsumed, 0));
     });
 
     itemGroups.forEach((batchRows) => {
@@ -578,7 +611,7 @@ class StorageService {
     const itemMonthlyConsumptionMap = new Map<string, number>();
     consumptions.forEach((c) => {
       const current = itemMonthlyConsumptionMap.get(c.itemCode) || 0;
-      itemMonthlyConsumptionMap.set(c.itemCode, current + (c.quantityConsumed || 0));
+      itemMonthlyConsumptionMap.set(c.itemCode, current + toSafeNum(c.quantityConsumed, 0));
     });
 
     // 2. Non-moving items for 30 days: items with stock available (>0) but zero consumption or absent from consumption sheet

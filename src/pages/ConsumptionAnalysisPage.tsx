@@ -65,25 +65,27 @@ export const ConsumptionAnalysisPage: React.FC = () => {
   });
 
   // Total consumption valuation & volume
-  const totalConsumptionSAR = filtered.reduce((sum, c) => sum + (c.totalConsumptionValue || 0), 0);
-  const totalVolumeUnits = filtered.reduce((sum, c) => sum + (c.quantityConsumed || 0), 0);
+  const totalConsumptionSAR = filtered.reduce((sum, c) => sum + (Number(c.totalConsumptionValue) || 0), 0);
+  const totalVolumeUnits = filtered.reduce((sum, c) => sum + (Number(c.quantityConsumed) || 0), 0);
 
   // Top 10 consumed items by Value (SAR)
   const itemValueMap = new Map<string, { code: string; desc: string; category: string; valueSAR: number; qty: number; unit: string }>();
   consumptions.forEach((c) => {
+    const qty = Number(c.quantityConsumed) || 0;
+    const valSAR = Number(c.totalConsumptionValue) || 0;
     const existing = itemValueMap.get(c.itemCode);
     if (!existing) {
       itemValueMap.set(c.itemCode, {
         code: c.itemCode,
         desc: c.itemDescription,
         category: c.category,
-        valueSAR: c.totalConsumptionValue || 0,
-        qty: c.quantityConsumed || 0,
+        valueSAR: valSAR,
+        qty,
         unit: c.unit,
       });
     } else {
-      existing.valueSAR += c.totalConsumptionValue || 0;
-      existing.qty += c.quantityConsumed || 0;
+      existing.valueSAR += valSAR;
+      existing.qty += qty;
     }
   });
 
@@ -94,19 +96,21 @@ export const ConsumptionAnalysisPage: React.FC = () => {
   // Top 10 consumed items by Quantity (Volume) - Transferred from Inventory Analysis as requested
   const itemQtyMap = new Map<string, { code: string; desc: string; category: string; quantity: number; unit: string; valueSAR: number }>();
   consumptions.forEach((c) => {
+    const qty = Number(c.quantityConsumed) || 0;
+    const valSAR = Number(c.totalConsumptionValue) || 0;
     const existing = itemQtyMap.get(c.itemCode);
     if (!existing) {
       itemQtyMap.set(c.itemCode, {
         code: c.itemCode,
         desc: c.itemDescription || c.itemCode,
         category: c.category || 'General',
-        quantity: c.quantityConsumed || 0,
+        quantity: qty,
         unit: c.unit || 'Unit',
-        valueSAR: c.totalConsumptionValue || 0,
+        valueSAR: valSAR,
       });
     } else {
-      existing.quantity += (c.quantityConsumed || 0);
-      existing.valueSAR += (c.totalConsumptionValue || 0);
+      existing.quantity += qty;
+      existing.valueSAR += valSAR;
     }
   });
 
@@ -468,16 +472,16 @@ export const ConsumptionAnalysisPage: React.FC = () => {
                       {item.department}
                     </td>
                     <td className="py-3 px-4 text-right font-extrabold text-slate-900">
-                      {item.quantityConsumed.toLocaleString()}
+                      {(Number(item.quantityConsumed) || 0).toLocaleString()}
                     </td>
                     <td className="py-3 px-4 text-slate-500">
                       {item.unit}
                     </td>
                     <td className="py-3 px-4 text-right font-mono text-slate-700">
-                      {item.unitCost?.toFixed(2)}
+                      {(Number(item.unitCost) || 0).toFixed(2)}
                     </td>
                     <td className="py-3 px-4 text-right font-mono font-bold text-teal-700">
-                      {formatSAR(item.totalConsumptionValue)}
+                      {formatSAR(Number(item.totalConsumptionValue) || 0)}
                     </td>
                     <td className="py-3 px-4 font-mono text-[11px] text-slate-500">
                       {item.issueVoucherNumber}

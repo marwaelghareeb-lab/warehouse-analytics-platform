@@ -23,6 +23,7 @@ import {
   autoMapColumns,
   validateImportData,
   normalizeExcelData,
+  parseSmartNumber,
   ParsedSheetData,
   ValidationResult,
   SheetMetadata,
@@ -59,7 +60,18 @@ export const UploadReportsPage: React.FC<UploadReportsPageProps> = ({ onImportSu
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [replaceDemoData, setReplaceDemoData] = useState<boolean>(storageService.getIsDemoMode());
 
+  const [hasManualReportType, setHasManualReportType] = useState<boolean>(false);
+
   const warehouses = storageService.getWarehouses();
+
+  const detectReportTypeFromName = (name: string): ReportType | null => {
+    const lower = name.toLowerCase();
+    if (/consum|issu|dispens|usage/.test(lower)) return 'consumption';
+    if (/grn|receiv|inbound/.test(lower)) return 'receiving_grn';
+    if (/expir|fefo/.test(lower)) return 'expiry_batch';
+    if (/stock|balance|snapshot|on.?hand/.test(lower)) return 'stock_snapshot';
+    return null;
+  };
 
   // Handle file drop or input
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -73,8 +85,19 @@ export const UploadReportsPage: React.FC<UploadReportsPageProps> = ({ onImportSu
       setFileData(parsed);
       setSelectedSheet(parsed.activeSheet);
 
+      let effectiveReportType = reportType;
+      if (!hasManualReportType) {
+        const inferred =
+          detectReportTypeFromName(file.name) ||
+          detectReportTypeFromName(parsed.activeSheet);
+        if (inferred) {
+          effectiveReportType = inferred;
+          setReportType(inferred);
+        }
+      }
+
       // Auto map columns initially with rule-based engine
-      const initialMapping = autoMapColumns(parsed.headers);
+      const initialMapping = autoMapColumns(parsed.headers, effectiveReportType);
       setColumnMapping(initialMapping);
       setCurrentStep(2);
     } catch (err: any) {
@@ -95,9 +118,10 @@ export const UploadReportsPage: React.FC<UploadReportsPageProps> = ({ onImportSu
       activeSheet: sheetName,
       headers: sheetInfo.headers,
       sampleRows: sheetInfo.sampleRows,
+      allRows: sheetInfo.allRows,
       totalRows: sheetInfo.totalRows,
     });
-    const newMapping = autoMapColumns(sheetInfo.headers);
+    const newMapping = autoMapColumns(sheetInfo.headers, reportType);
     setColumnMapping(newMapping);
   };
 
@@ -124,16 +148,16 @@ export const UploadReportsPage: React.FC<UploadReportsPageProps> = ({ onImportSu
           ...prev,
           ...data.mappings,
         }));
-        setAiRationale(data.explanation || 'Columns matched using Gemini 3.8 Flash model.');
+        setAiRationale(data.explanation || 'Columns matched using AI column recognition.');
       } else {
         // Fallback to rule-based
-        const fallback = autoMapColumns(fileData.headers);
+        const fallback = autoMapColumns(fileData.headers, reportType);
         setColumnMapping(fallback);
-        setAiRationale('Rule-based mapping applied (no AI response).');
+        setAiRationale('Rule-based mapping applied.');
       }
     } catch (err) {
       console.warn('AI mapping call failed, using rule-based mapping', err);
-      const fallback = autoMapColumns(fileData.headers);
+      const fallback = autoMapColumns(fileData.headers, reportType);
       setColumnMapping(fallback);
       setAiRationale('Rule-based mapping applied (offline fallback).');
     } finally {
@@ -351,7 +375,10 @@ export const UploadReportsPage: React.FC<UploadReportsPageProps> = ({ onImportSu
                 </label>
                 <select
                   value={reportType}
-                  onChange={(e) => setReportType(e.target.value as ReportType)}
+                  onChange={(e) => {
+                    setHasManualReportType(true);
+                    setReportType(e.target.value as ReportType);
+                  }}
                   className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 focus:ring-2 focus:ring-teal-500 font-medium"
                 >
                   <option value="stock_snapshot">Stock Balance Snapshot (Dated Snapshot)</option>
@@ -486,7 +513,26 @@ export const UploadReportsPage: React.FC<UploadReportsPageProps> = ({ onImportSu
               </div>
             </div>
 
-            <div className="flex items-center space-x-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center space-x-2">
+                <span className="text-slate-500 font-medium">Type:</span>
+                <select
+                  value={reportType}
+                  onChange={(e) => {
+                    const nextType = e.target.value as ReportType;
+                    setHasManualReportType(true);
+                    setReportType(nextType);
+                    setColumnMapping(autoMapColumns(fileData.headers, nextType));
+                  }}
+                  className="bg-slate-50 border border-slate-300 rounded px-2.5 py-1 text-xs text-slate-800 font-medium"
+                >
+                  <option value="stock_snapshot">Stock Snapshot</option>
+                  <option value="consumption">Monthly Consumption</option>
+                  <option value="receiving_grn">GRN Receiving</option>
+                  <option value="expiry_batch">Expiry & Batch</option>
+                </select>
+              </div>
+
               {fileData.sheetNames.length > 1 && (
                 <div className="flex items-center space-x-2">
                   <span className="text-slate-500 font-medium">Worksheet:</span>
@@ -548,8 +594,21 @@ export const UploadReportsPage: React.FC<UploadReportsPageProps> = ({ onImportSu
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {fileData.headers.map((header) => {
-                    const sampleVal = fileData.sampleRows[0] ? String(fileData.sampleRows[0][header] || '') : '—';
+                    const firstNonEmptyRow = fileData.sampleRows.find(
+                      (r) => r[header] !== undefined && r[header] !== null && String(r[header]).trim() !== ''
+                    );
+                    const rawSample = firstNonEmptyRow ? firstNonEmptyRow[header] : undefined;
+                    const sampleVal =
+                      rawSample !== undefined && rawSample !== null && String(rawSample).trim() !== ''
+                        ? String(rawSample)
+                        : '—';
                     const currentStandard = columnMapping[header] || 'ignore';
+                    const isNumericField =
+                      currentStandard === 'quantity' ||
+                      currentStandard === 'unitCost' ||
+                      currentStandard === 'totalValue';
+                    const parsedNumericSample =
+                      isNumericField && rawSample !== undefined ? parseSmartNumber(rawSample).value : null;
                     const isRequired = STANDARD_FIELDS_DICTIONARY.find((d) => d.key === currentStandard)?.requiredFor.includes(reportType);
 
                     return (
@@ -557,8 +616,13 @@ export const UploadReportsPage: React.FC<UploadReportsPageProps> = ({ onImportSu
                         <td className="py-2.5 px-3 font-semibold text-slate-900 font-mono text-[11px]">
                           {header}
                         </td>
-                        <td className="py-2.5 px-3 text-slate-600 max-w-[200px] truncate" title={sampleVal}>
-                          {sampleVal}
+                        <td className="py-2.5 px-3 text-slate-600 max-w-[220px]" title={sampleVal}>
+                          <div className="truncate">{sampleVal}</div>
+                          {parsedNumericSample !== null && (
+                            <span className="inline-block mt-0.5 text-[10px] font-mono font-semibold text-teal-700 bg-teal-50 px-1.5 py-0.5 rounded border border-teal-200">
+                              Parsed: {parsedNumericSample.toLocaleString()} (number)
+                            </span>
+                          )}
                         </td>
                         <td className="py-2.5 px-3">
                           <select

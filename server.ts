@@ -124,7 +124,7 @@ Be extremely accurate. Return JSON mapping.
     });
   } catch (err: any) {
     console.warn('Gemini Column Mapping encountered error, using rule-based fallback:', err.message);
-    const ruleBased = fallbackRuleBasedMapping(req.body.headers || []);
+    const ruleBased = fallbackRuleBasedMapping(req.body.headers || [], req.body.reportType);
     res.json({
       success: true,
       isAiPowered: false,
@@ -135,43 +135,100 @@ Be extremely accurate. Return JSON mapping.
   }
 });
 
-// Heuristic rule-based column matcher
-function fallbackRuleBasedMapping(headers: string[]): Record<string, string> {
+// Heuristic rule-based column matcher (scored 1-to-1 matching)
+function fallbackRuleBasedMapping(headers: string[], reportType?: string): Record<string, string> {
   const dictionary: Record<string, string[]> = {
-    itemCode: ['item code', 'itemcode', 'item_code', 'item no', 'sku', 'material code', 'product code', 'item_id', 'code', 'part_number'],
-    itemDescription: ['item description', 'description', 'item_desc', 'product name', 'item name', 'drug name', 'material description', 'specification', 'name'],
-    category: ['category', 'item category', 'material group', 'class', 'group', 'product line', 'dept_type'],
-    warehouse: ['warehouse', 'warehouse code', 'wh_code', 'store', 'storage location', 'subinventory', 'site', 'depot', 'loc'],
-    quantity: ['quantity', 'qty', 'on hand', 'balance', 'stock qty', 'qty received', 'qty issued', 'current stock', 'physical qty', 'available qty'],
-    unit: ['unit', 'uom', 'unit of measure', 'pkg', 'packaging', 'base uom'],
-    unitCost: ['unit cost', 'cost', 'unit price', 'price', 'standard cost', 'rate', 'purchase price', 'item cost', 'sar cost', 'cost/unit'],
-    totalValue: ['total value', 'total cost', 'total amount', 'extended value', 'inventory value', 'line total', 'total sar', 'net value'],
-    transactionDate: ['date', 'transaction date', 'posting date', 'issue date', 'receipt date', 'txn date', 'created date'],
-    reportingPeriod: ['period', 'reporting period', 'month', 'fiscal period', 'quarter'],
-    supplier: ['supplier', 'vendor', 'supplier name', 'manufacturer', 'vendor name'],
-    department: ['department', 'dept', 'cost center', 'ward', 'requesting unit', 'clinic'],
-    batchNumber: ['batch', 'batch number', 'lot', 'lot number', 'batch_no', 'lot_no'],
-    expiryDate: ['expiry date', 'expiration date', 'exp date', 'exp_date', 'valid until', 'expiry', 'exp_dt'],
-    grnNumber: ['grn', 'grn number', 'grn_no', 'receiving doc', 'receipt number'],
-    prNumber: ['pr number', 'pr_no', 'requisition', 'purchase requisition', 'po number', 'po_no'],
+    itemCode: ['item code', 'itemcode', 'item_code', 'item no', 'item number', 'sku', 'material code', 'material no', 'product code', 'item_id', 'code', 'part_number', 'part number', 'catalog no', 'كود الصنف', 'رقم الصنف', 'رمز الصنف'],
+    itemDescription: ['item description', 'description', 'item_desc', 'product name', 'item name', 'drug name', 'material description', 'specification', 'name', 'item title', 'وصف الصنف', 'اسم الصنف', 'البيان'],
+    category: ['category', 'item category', 'material group', 'class', 'group', 'product line', 'therapeutic_class', 'item group', 'الفئة', 'التصنيف'],
+    warehouse: ['warehouse', 'warehouse code', 'wh_code', 'wh code', 'store', 'store code', 'storage location', 'subinventory', 'site', 'depot', 'loc', 'المستودع', 'المخزن'],
+    quantity: [
+      'quantity', 'qty', 'quantity consumed', 'qty consumed', 'consumed quantity', 'consumed qty',
+      'consumption qty', 'consumption quantity', 'monthly consumption', 'consumption', 'consumed',
+      'qty issued', 'issued qty', 'issued quantity', 'issue qty', 'dispensed qty', 'dispensed',
+      'qty used', 'usage', 'qty out', 'total qty', 'total quantity', 'units consumed',
+      'on hand', 'balance', 'stock qty', 'qty received', 'received qty', 'current stock', 'physical qty', 'available qty',
+      'الكمية', 'كمية', 'الكمية المصروفة', 'كمية الاستهلاك', 'الاستهلاك',
+    ],
+    unit: ['unit', 'uom', 'unit of measure', 'pkg', 'packaging', 'base uom', 'pack size', 'dispensing unit', 'الوحدة', 'وحدة القياس'],
+    unitCost: ['unit cost', 'cost', 'unit price', 'price', 'standard cost', 'rate', 'purchase price', 'item cost', 'sar cost', 'cost/unit', 'avg cost', 'average cost', 'سعر الوحدة', 'التكلفة'],
+    totalValue: ['total value', 'total cost', 'total amount', 'extended value', 'inventory value', 'line total', 'total sar', 'net value', 'amount', 'total price', 'total expenditure', 'الإجمالي', 'القيمة الإجمالية'],
+    transactionDate: ['transaction date', 'posting date', 'issue date', 'receipt date', 'txn date', 'created date', 'grn date', 'movement date', 'entry date', 'date', 'التاريخ', 'تاريخ الحركة'],
+    reportingPeriod: ['reporting period', 'period', 'month', 'fiscal period', 'quarter', 'billing period', 'الشهر', 'الفترة'],
+    supplier: ['supplier', 'vendor', 'supplier name', 'manufacturer', 'vendor name', 'distributor', 'المورد'],
+    department: ['department', 'dept', 'dept_name', 'cost center', 'ward', 'requesting unit', 'clinic', 'section', 'service', 'location', 'consuming unit', 'consuming department', 'القسم', 'العيادة'],
+    batchNumber: ['batch', 'batch number', 'lot', 'lot number', 'batch_no', 'lot_no', 'batch id', 'رقم التشغيلة', 'التشغيلة'],
+    expiryDate: ['expiry date', 'expiration date', 'exp date', 'exp_date', 'valid until', 'expiry', 'exp_dt', 'تاريخ الانتهاء', 'الصلاحية'],
+    grnNumber: ['grn', 'grn number', 'grn_no', 'receiving doc', 'receipt number', 'mrn', 'receiving voucher', 'رقم الاستلام'],
+    prNumber: ['pr number', 'pr_no', 'requisition', 'purchase requisition', 'po number', 'po_no', 'order number', 'voucher', 'voucher number', 'issue voucher'],
+  };
+
+  const normalize = (t: string) => {
+    const spaced = t.toLowerCase().replace(/[_/\\|()-]+/g, ' ').replace(/[^\w\s\u0600-\u06FF]/g, ' ').replace(/\s+/g, ' ').trim();
+    return { clean: spaced.replace(/\s+/g, ''), words: spaced ? spaced.split(' ') : [] };
   };
 
   const mappings: Record<string, string> = {};
+  headers.forEach((h) => { mappings[h] = 'ignore'; });
+
+  const candidates: Array<{ header: string; field: string; score: number }> = [];
+
   for (const header of headers) {
-    const clean = header.toLowerCase().replace(/[^a-z0-9]/g, '');
-    let matched = 'ignore';
+    const { clean, words } = normalize(header);
+    if (!clean) continue;
+
+    const looksLikeCost = words.some((w) => ['cost', 'price', 'rate', 'sar', 'value', 'amount'].includes(w));
+    const looksLikeQty = words.some((w) =>
+      ['qty', 'quantity', 'consumed', 'consumption', 'issued', 'dispensed', 'usage', 'balance', 'stock', 'الكمية', 'كمية', 'الاستهلاك'].includes(w)
+    );
+    const looksLikeDept = words.some((w) => ['dept', 'department', 'ward', 'clinic', 'القسم'].includes(w));
+
     for (const [field, aliases] of Object.entries(dictionary)) {
-      if (
-        aliases.some((a) => {
-          const cleanA = a.toLowerCase().replace(/[^a-z0-9]/g, '');
-          return clean === cleanA || clean.includes(cleanA) || cleanA.includes(clean);
-        })
-      ) {
-        matched = field;
-        break;
+      if (field === 'unit' && (looksLikeCost || looksLikeQty)) continue;
+      if (field === 'category' && looksLikeDept) continue;
+      if (field === 'itemCode' && (words.includes('sno') || clean === 'sn' || clean === 'no')) continue;
+
+      let bestScore = 0;
+      for (const alias of aliases) {
+        const { clean: cleanA, words: wordsA } = normalize(alias);
+        if (!cleanA) continue;
+        let score = 0;
+        if (clean === cleanA) {
+          score = 1000 + cleanA.length;
+        } else if (wordsA.length > 0 && wordsA.every((aw) => words.includes(aw))) {
+          score = 500 + wordsA.length * 25 + cleanA.length;
+        } else if (cleanA.length >= 4 && clean.includes(cleanA)) {
+          score = 220 + cleanA.length * 3;
+        } else if (clean.length >= 5 && cleanA.includes(clean) && words.every((w) => w.length >= 4)) {
+          score = 120 + clean.length * 2;
+        }
+
+        if (score > 0 && field === 'quantity' && reportType === 'consumption') {
+          if (/consum|issu|dispens|usage|quantity|qty|الكمية|الاستهلاك/.test(cleanA)) {
+            score += 80;
+          }
+        }
+        if (score > bestScore) bestScore = score;
+      }
+
+      if (field === 'quantity' && bestScore < 500 && looksLikeQty) {
+        bestScore = Math.max(bestScore, 450);
+      }
+
+      if (bestScore > 0) {
+        candidates.push({ header, field, score: bestScore });
       }
     }
-    mappings[header] = matched;
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+  const usedHeaders = new Set<string>();
+  const usedFields = new Set<string>();
+  for (const c of candidates) {
+    if (usedHeaders.has(c.header) || usedFields.has(c.field)) continue;
+    mappings[c.header] = c.field;
+    usedHeaders.add(c.header);
+    usedFields.add(c.field);
   }
   return mappings;
 }

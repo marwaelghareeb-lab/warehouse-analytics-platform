@@ -1174,7 +1174,7 @@ export const STANDARD_FIELDS_DICTIONARY: FieldDefinition[] = [
     description: 'Unique hospital item identifier or catalog number',
     requiredFor: ['stock_snapshot', 'consumption', 'receiving_grn', 'expiry_batch'],
     type: 'string',
-    aliases: ['item code', 'itemcode', 'item_code', 'item no', 'sku', 'material code', 'product code', 'item_id', 'code', 'part_number'],
+    aliases: ['item code', 'itemcode', 'item_code', 'item no', 'item number', 'sku', 'material code', 'material no', 'product code', 'item_id', 'code', 'part_number', 'part number', 'catalog no', 'كود الصنف', 'رقم الصنف', 'رمز الصنف'],
   },
   {
     key: 'itemDescription',
@@ -1182,7 +1182,7 @@ export const STANDARD_FIELDS_DICTIONARY: FieldDefinition[] = [
     description: 'Generic medical name, brand or clinical specification',
     requiredFor: ['stock_snapshot', 'consumption', 'receiving_grn', 'expiry_batch'],
     type: 'string',
-    aliases: ['item description', 'description', 'item_desc', 'product name', 'item name', 'drug name', 'material description', 'specification', 'name'],
+    aliases: ['item description', 'description', 'item_desc', 'product name', 'item name', 'drug name', 'material description', 'specification', 'name', 'item title', 'وصف الصنف', 'اسم الصنف', 'البيان'],
   },
   {
     key: 'category',
@@ -1190,7 +1190,7 @@ export const STANDARD_FIELDS_DICTIONARY: FieldDefinition[] = [
     description: 'Medical classification (e.g. Pharmaceuticals, Surgical, PPE)',
     requiredFor: [],
     type: 'string',
-    aliases: ['category', 'item category', 'material group', 'class', 'group', 'product line', 'dept_type', 'therapeutic_class'],
+    aliases: ['category', 'item category', 'material group', 'class', 'group', 'product line', 'therapeutic_class', 'item group', 'الفئة', 'التصنيف'],
   },
   {
     key: 'warehouse',
@@ -1198,7 +1198,7 @@ export const STANDARD_FIELDS_DICTIONARY: FieldDefinition[] = [
     description: 'Store or depot location identifier',
     requiredFor: ['stock_snapshot'],
     type: 'string',
-    aliases: ['warehouse', 'warehouse code', 'wh_code', 'store', 'storage location', 'subinventory', 'site', 'depot', 'loc'],
+    aliases: ['warehouse', 'warehouse code', 'wh_code', 'wh code', 'store', 'store code', 'storage location', 'subinventory', 'site', 'depot', 'loc', 'المستودع', 'المخزن'],
   },
   {
     key: 'quantity',
@@ -1206,7 +1206,14 @@ export const STANDARD_FIELDS_DICTIONARY: FieldDefinition[] = [
     description: 'Numeric quantity balance, consumed count or received count',
     requiredFor: ['stock_snapshot', 'consumption', 'receiving_grn', 'expiry_batch'],
     type: 'number',
-    aliases: ['quantity', 'qty', 'on hand', 'balance', 'stock qty', 'qty received', 'qty issued', 'current stock', 'physical qty', 'available qty'],
+    aliases: [
+      'quantity', 'qty', 'quantity consumed', 'qty consumed', 'consumed quantity', 'consumed qty',
+      'consumption qty', 'consumption quantity', 'monthly consumption', 'consumption', 'consumed',
+      'qty issued', 'issued qty', 'issued quantity', 'issue qty', 'dispensed qty', 'dispensed',
+      'qty used', 'usage', 'qty out', 'total qty', 'total quantity', 'units consumed',
+      'on hand', 'balance', 'stock qty', 'qty received', 'received qty', 'current stock', 'physical qty', 'available qty',
+      'الكمية', 'كمية', 'الكمية المصروفة', 'كمية الاستهلاك', 'الاستهلاك',
+    ],
   },
   {
     key: 'unit',
@@ -1214,7 +1221,7 @@ export const STANDARD_FIELDS_DICTIONARY: FieldDefinition[] = [
     description: 'Dispensing unit (e.g. Vials, Bags, Boxes, Pieces, Pens)',
     requiredFor: [],
     type: 'string',
-    aliases: ['unit', 'uom', 'unit of measure', 'pkg', 'packaging', 'base uom', 'pack size'],
+    aliases: ['unit', 'uom', 'unit of measure', 'pkg', 'packaging', 'base uom', 'pack size', 'dispensing unit', 'الوحدة', 'وحدة القياس'],
   },
   {
     key: 'unitCost',
@@ -1222,7 +1229,7 @@ export const STANDARD_FIELDS_DICTIONARY: FieldDefinition[] = [
     description: 'Standard or weighted average purchasing cost per unit in SAR',
     requiredFor: [],
     type: 'number',
-    aliases: ['unit cost', 'cost', 'unit price', 'price', 'standard cost', 'rate', 'purchase price', 'item cost', 'sar cost', 'cost/unit'],
+    aliases: ['unit cost', 'cost', 'unit price', 'price', 'standard cost', 'rate', 'purchase price', 'item cost', 'sar cost', 'cost/unit', 'avg cost', 'average cost', 'سعر الوحدة', 'التكلفة'],
   },
   {
     key: 'totalValue',
@@ -1230,7 +1237,7 @@ export const STANDARD_FIELDS_DICTIONARY: FieldDefinition[] = [
     description: 'Total financial valuation in SAR (Quantity * Unit Cost)',
     requiredFor: [],
     type: 'number',
-    aliases: ['total value', 'total cost', 'total amount', 'extended value', 'inventory value', 'line total', 'total sar', 'net value'],
+    aliases: ['total value', 'total cost', 'total amount', 'extended value', 'inventory value', 'line total', 'total sar', 'net value', 'amount', 'total price', 'total expenditure', 'الإجمالي', 'القيمة الإجمالية'],
   },
   {
     key: 'transactionDate',
@@ -1238,7 +1245,7 @@ export const STANDARD_FIELDS_DICTIONARY: FieldDefinition[] = [
     description: 'Specific transaction date if available (optional for monthly consolidated consumption)',
     requiredFor: ['receiving_grn'],
     type: 'date',
-    aliases: ['date', 'transaction date', 'posting date', 'issue date', 'receipt date', 'txn date', 'created date', 'grn date', 'movement date', 'entry date'],
+    aliases: ['transaction date', 'posting date', 'issue date', 'receipt date', 'txn date', 'created date', 'grn date', 'movement date', 'entry date', 'date', 'التاريخ', 'تاريخ الحركة'],
   },
   {
     key: 'reportingPeriod',
@@ -1246,7 +1253,7 @@ export const STANDARD_FIELDS_DICTIONARY: FieldDefinition[] = [
     description: 'Fiscal month or quarter tag (e.g. 2026-10)',
     requiredFor: [],
     type: 'string',
-    aliases: ['period', 'reporting period', 'month', 'fiscal period', 'quarter', 'billing period'],
+    aliases: ['reporting period', 'period', 'month', 'fiscal period', 'quarter', 'billing period', 'الشهر', 'الفترة'],
   },
   {
     key: 'supplier',
@@ -1254,7 +1261,7 @@ export const STANDARD_FIELDS_DICTIONARY: FieldDefinition[] = [
     description: 'Manufacturer or medical distributor name',
     requiredFor: ['receiving_grn'],
     type: 'string',
-    aliases: ['supplier', 'vendor', 'supplier name', 'manufacturer', 'vendor name', 'distributor'],
+    aliases: ['supplier', 'vendor', 'supplier name', 'manufacturer', 'vendor name', 'distributor', 'المورد'],
   },
   {
     key: 'department',
@@ -1262,7 +1269,7 @@ export const STANDARD_FIELDS_DICTIONARY: FieldDefinition[] = [
     description: 'Hospital clinic, ward or operating room (optional for hospital-wide monthly consumption)',
     requiredFor: [],
     type: 'string',
-    aliases: ['department', 'dept', 'cost center', 'ward', 'requesting unit', 'clinic', 'section', 'service', 'location', 'dept_name', 'consuming unit'],
+    aliases: ['department', 'dept', 'dept_name', 'cost center', 'ward', 'requesting unit', 'clinic', 'section', 'service', 'location', 'consuming unit', 'consuming department', 'القسم', 'العيادة'],
   },
   {
     key: 'batchNumber',
@@ -1270,7 +1277,7 @@ export const STANDARD_FIELDS_DICTIONARY: FieldDefinition[] = [
     description: 'Manufacturer lot number for traceability & FEFO',
     requiredFor: ['expiry_batch'],
     type: 'string',
-    aliases: ['batch', 'batch number', 'lot', 'lot number', 'batch_no', 'lot_no', 'batch id'],
+    aliases: ['batch', 'batch number', 'lot', 'lot number', 'batch_no', 'lot_no', 'batch id', 'رقم التشغيلة', 'التشغيلة'],
   },
   {
     key: 'expiryDate',
@@ -1278,7 +1285,7 @@ export const STANDARD_FIELDS_DICTIONARY: FieldDefinition[] = [
     description: 'Medical batch expiry date',
     requiredFor: ['expiry_batch'],
     type: 'date',
-    aliases: ['expiry date', 'expiration date', 'exp date', 'exp_date', 'valid until', 'expiry', 'exp_dt'],
+    aliases: ['expiry date', 'expiration date', 'exp date', 'exp_date', 'valid until', 'expiry', 'exp_dt', 'تاريخ الانتهاء', 'الصلاحية'],
   },
   {
     key: 'grnNumber',
@@ -1286,7 +1293,7 @@ export const STANDARD_FIELDS_DICTIONARY: FieldDefinition[] = [
     description: 'Goods Received Note or receiving voucher reference',
     requiredFor: ['receiving_grn'],
     type: 'string',
-    aliases: ['grn', 'grn number', 'grn_no', 'receiving doc', 'receipt number', 'mrn', 'receiving voucher'],
+    aliases: ['grn', 'grn number', 'grn_no', 'receiving doc', 'receipt number', 'mrn', 'receiving voucher', 'رقم الاستلام'],
   },
   {
     key: 'prNumber',
@@ -1294,7 +1301,7 @@ export const STANDARD_FIELDS_DICTIONARY: FieldDefinition[] = [
     description: 'Purchase Requisition or Purchase Order reference number',
     requiredFor: [],
     type: 'string',
-    aliases: ['pr number', 'pr_no', 'requisition', 'purchase requisition', 'po number', 'po_no', 'order number'],
+    aliases: ['pr number', 'pr_no', 'requisition', 'purchase requisition', 'po number', 'po_no', 'order number', 'voucher', 'voucher number', 'issue voucher'],
   },
 ];
 

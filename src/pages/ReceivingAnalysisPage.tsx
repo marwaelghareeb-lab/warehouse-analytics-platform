@@ -11,6 +11,7 @@ import {
   Clock,
   Building,
   Calendar,
+  X,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -32,6 +33,9 @@ export const ReceivingAnalysisPage: React.FC = () => {
   const [receivings, setReceivings] = useState<ReceivingRecord[]>(storageService.getReceivingRecords());
   const [supplierFilter, setSupplierFilter] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+  const [distributorSearchInput, setDistributorSearchInput] = useState('');
+  const [distributorSearchQuery, setDistributorSearchQuery] = useState('');
+  const [showAllDistributors, setShowAllDistributors] = useState(false);
 
   useEffect(() => {
     const update = () => {
@@ -55,20 +59,22 @@ export const ReceivingAnalysisPage: React.FC = () => {
 
   // Filtered receivings
   const filtered = receivings.filter((r) => {
+    const q = searchQuery.trim().toLowerCase();
     const matchSupplier = supplierFilter === 'ALL' || r.supplierName === supplierFilter;
     const matchSearch =
-      searchQuery === '' ||
-      r.itemCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      r.itemDescription.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      r.grnNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      r.supplierName.toLowerCase().includes(searchQuery.toLowerCase());
+      q === '' ||
+      (r.itemCode || '').toLowerCase().includes(q) ||
+      (r.itemDescription || '').toLowerCase().includes(q) ||
+      (r.grnNumber || '').toLowerCase().includes(q) ||
+      (r.prNumber || '').toLowerCase().includes(q) ||
+      (r.supplierName || '').toLowerCase().includes(q);
 
     return matchSupplier && matchSearch;
   });
 
   // Totals
-  const totalReceivedValueSAR = filtered.reduce((sum, r) => sum + (r.totalReceivedValue || 0), 0);
-  const totalItemsReceived = filtered.reduce((sum, r) => sum + (r.quantityReceived || 0), 0);
+  const totalReceivedValueSAR = filtered.reduce((sum, r) => sum + (Number(r.totalReceivedValue) || 0), 0);
+  const totalItemsReceived = filtered.reduce((sum, r) => sum + (Number(r.quantityReceived) || 0), 0);
   const uniqueGRNs = new Set(filtered.map((r) => r.grnNumber)).size;
   const uniquePRs = new Set(filtered.filter((r) => r.prNumber).map((r) => r.prNumber)).size;
 
@@ -76,23 +82,37 @@ export const ReceivingAnalysisPage: React.FC = () => {
   const supplierSpendMap = new Map<string, { supplier: string; totalSAR: number; shipments: number; itemsCount: number }>();
   receivings.forEach((r) => {
     const s = r.supplierName || 'Unknown Vendor';
+    const val = Number(r.totalReceivedValue) || 0;
+    const qty = Number(r.quantityReceived) || 0;
     const existing = supplierSpendMap.get(s);
     if (!existing) {
       supplierSpendMap.set(s, {
         supplier: s,
-        totalSAR: r.totalReceivedValue || 0,
+        totalSAR: val,
         shipments: 1,
-        itemsCount: r.quantityReceived || 0,
+        itemsCount: qty,
       });
     } else {
-      existing.totalSAR += r.totalReceivedValue || 0;
+      existing.totalSAR += val;
       existing.shipments += 1;
-      existing.itemsCount += r.quantityReceived || 0;
+      existing.itemsCount += qty;
     }
   });
 
   const supplierData = Array.from(supplierSpendMap.values())
     .sort((a, b) => b.totalSAR - a.totalSAR);
+
+  const activeDistributorQuery = distributorSearchQuery.trim().toLowerCase();
+  const filteredDistributorData = activeDistributorQuery
+    ? supplierData.filter((s) => s.supplier.toLowerCase().includes(activeDistributorQuery))
+    : showAllDistributors
+      ? supplierData
+      : supplierData.slice(0, 4);
+
+  const handleDistributorSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setDistributorSearchQuery(distributorSearchInput);
+  };
 
   const COLORS = ['#0d9488', '#0284c7', '#6366f1', '#f59e0b', '#ec4899', '#10b981'];
 
@@ -209,34 +229,105 @@ export const ReceivingAnalysisPage: React.FC = () => {
         {/* Vendor Summary Card */}
         <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs flex flex-col justify-between">
           <div>
-            <h2 className="font-bold text-sm text-slate-900 uppercase tracking-wider mb-1">
-              Distributor Highlights
-            </h2>
-            <p className="text-xs text-slate-500 mb-4">
-              Contracted hospital suppliers with active shipments this period
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <h2 className="font-bold text-sm text-slate-900 uppercase tracking-wider">
+                Distributor Highlights
+              </h2>
+              {supplierData.length > 4 && !activeDistributorQuery && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllDistributors((prev) => !prev)}
+                  className="text-[11px] font-semibold text-teal-700 hover:text-teal-900 hover:underline shrink-0"
+                >
+                  {showAllDistributors ? 'Top 4' : `View All (${supplierData.length})`}
+                </button>
+              )}
+            </div>
+            <p className="text-xs text-slate-500 mb-3">
+              Search any supplier to view total receiving amount during the month
             </p>
 
-            <div className="space-y-3">
-              {supplierData.slice(0, 4).map((s, idx) => (
-                <div
-                  key={s.supplier}
-                  className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs flex items-center justify-between"
-                >
-                  <div className="max-w-[160px]">
-                    <div className="font-bold text-slate-900 truncate">{s.supplier}</div>
-                    <div className="text-[10px] text-slate-500">{s.shipments} GRN Deliveries</div>
-                  </div>
-                  <div className="text-right">
-                    <div className="font-bold text-teal-800">{formatSAR(s.totalSAR)}</div>
-                    <div className="text-[10px] text-slate-500">{s.itemsCount.toLocaleString()} units</div>
-                  </div>
+            {/* Distributor Search Bar with Search Button */}
+            <form onSubmit={handleDistributorSearchSubmit} className="flex items-center gap-1.5 mb-3">
+              <div className="relative flex-1">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Supplier name..."
+                  value={distributorSearchInput}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setDistributorSearchInput(val);
+                    setDistributorSearchQuery(val);
+                  }}
+                  className="w-full pl-8 pr-7 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs text-slate-900 focus:ring-2 focus:ring-teal-500 font-medium"
+                />
+                {distributorSearchInput && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDistributorSearchInput('');
+                      setDistributorSearchQuery('');
+                    }}
+                    title="Clear search"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+              <button
+                type="submit"
+                className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-lg transition inline-flex items-center gap-1 shrink-0"
+              >
+                <Search className="w-3 h-3" />
+                <span>Search</span>
+              </button>
+            </form>
+
+            <div className="space-y-2.5 max-h-[250px] overflow-y-auto pr-1">
+              {filteredDistributorData.length > 0 ? (
+                filteredDistributorData.map((s) => {
+                  const isSelected = supplierFilter === s.supplier;
+                  return (
+                    <button
+                      type="button"
+                      key={s.supplier}
+                      onClick={() => setSupplierFilter(isSelected ? 'ALL' : s.supplier)}
+                      title="Click to filter receiving log by this supplier"
+                      className={`w-full text-left p-3 rounded-lg text-xs flex items-center justify-between border transition ${
+                        isSelected
+                          ? 'bg-teal-50 border-teal-400 ring-1 ring-teal-400'
+                          : 'bg-slate-50 border-slate-200 hover:border-teal-300 hover:bg-slate-100/70'
+                      }`}
+                    >
+                      <div className="max-w-[165px]">
+                        <div className="font-bold text-slate-900 truncate" title={s.supplier}>
+                          {s.supplier}
+                        </div>
+                        <div className="text-[10px] text-slate-500">{s.shipments} GRN Deliveries</div>
+                      </div>
+                      <div className="text-right shrink-0 ml-2">
+                        <div className="font-bold text-teal-800">{formatSAR(s.totalSAR)}</div>
+                        <div className="text-[10px] text-slate-500">{s.itemsCount.toLocaleString()} units</div>
+                      </div>
+                    </button>
+                  );
+                })
+              ) : (
+                <div className="p-4 text-center text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg">
+                  No supplier found matching "{distributorSearchQuery}".
                 </div>
-              ))}
+              )}
             </div>
           </div>
 
           <div className="pt-3 border-t border-slate-100 mt-4 text-[11px] text-slate-500 flex items-center justify-between">
-            <span>QA Inspection: 100% Passed</span>
+            <span>
+              {activeDistributorQuery
+                ? `${filteredDistributorData.length} matching supplier(s)`
+                : `Total Active Suppliers: ${supplierData.length}`}
+            </span>
             <CheckCircle className="w-4 h-4 text-emerald-600" />
           </div>
         </div>
@@ -257,13 +348,13 @@ export const ReceivingAnalysisPage: React.FC = () => {
           </div>
 
           <div className="flex items-center space-x-2">
-            <span className="text-slate-500 font-semibold">Distributor:</span>
+            <span className="text-slate-500 font-semibold">Supplier Name:</span>
             <select
               value={supplierFilter}
               onChange={(e) => setSupplierFilter(e.target.value)}
               className="bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-slate-800 font-medium"
             >
-              <option value="ALL">All Distributors</option>
+              <option value="ALL">All Suppliers</option>
               {suppliers.map((s) => (
                 <option key={s} value={s}>
                   {s}
@@ -279,7 +370,6 @@ export const ReceivingAnalysisPage: React.FC = () => {
               <tr>
                 <th className="py-3 px-4">GRN #</th>
                 <th className="py-3 px-4">PR #</th>
-                <th className="py-3 px-4">Supplier / Vendor</th>
                 <th className="py-3 px-4">Item Code</th>
                 <th className="py-3 px-4">Item Description</th>
                 <th className="py-3 px-4">Warehouse</th>
@@ -287,7 +377,7 @@ export const ReceivingAnalysisPage: React.FC = () => {
                 <th className="py-3 px-4">UOM</th>
                 <th className="py-3 px-4 text-right">Unit Cost (SAR)</th>
                 <th className="py-3 px-4 text-right">Total GRN (SAR)</th>
-                <th className="py-3 px-4 text-center">Status</th>
+                <th className="py-3 px-4">Supplier Name</th>
                 <th className="py-3 px-4">Date</th>
               </tr>
             </thead>
@@ -301,9 +391,6 @@ export const ReceivingAnalysisPage: React.FC = () => {
                     <td className="py-3 px-4 font-mono text-slate-500">
                       {item.prNumber}
                     </td>
-                    <td className="py-3 px-4 font-semibold text-slate-800">
-                      {item.supplierName}
-                    </td>
                     <td className="py-3 px-4 font-mono font-bold text-slate-900">
                       {item.itemCode}
                     </td>
@@ -316,31 +403,29 @@ export const ReceivingAnalysisPage: React.FC = () => {
                       </span>
                     </td>
                     <td className="py-3 px-4 text-right font-extrabold text-slate-900">
-                      {item.quantityReceived.toLocaleString()}
+                      {(Number(item.quantityReceived) || 0).toLocaleString()}
                     </td>
                     <td className="py-3 px-4 text-slate-500 font-medium">
                       {item.unit}
                     </td>
                     <td className="py-3 px-4 text-right font-mono text-slate-700">
-                      {item.unitCost?.toFixed(2)}
+                      {(Number(item.unitCost) || 0).toFixed(2)}
                     </td>
                     <td className="py-3 px-4 text-right font-mono font-bold text-teal-800">
-                      {formatSAR(item.totalReceivedValue)}
+                      {formatSAR(Number(item.totalReceivedValue) || 0)}
                     </td>
-                    <td className="py-3 px-4 text-center">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                        {item.inspectionStatus}
-                      </span>
+                    <td className="py-3 px-4 font-semibold text-slate-800 min-w-[160px]">
+                      {item.supplierName || '—'}
                     </td>
-                    <td className="py-3 px-4 text-slate-500">
+                    <td className="py-3 px-4 text-slate-500 whitespace-nowrap">
                       {item.receiptDate}
                     </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={12} className="py-8 text-center text-slate-500 text-xs">
-                    No receiving records found for the selected distributor.
+                  <td colSpan={11} className="py-8 text-center text-slate-500 text-xs">
+                    No receiving records found for the selected supplier.
                   </td>
                 </tr>
               )}

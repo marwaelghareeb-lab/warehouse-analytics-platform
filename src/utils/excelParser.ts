@@ -63,14 +63,188 @@ export interface SheetMetadata {
 const ERP_HEADER_KEYWORDS = [
   'item', 'code', 'sku', 'product', 'material', 'desc', 'description', 'name',
   'cat', 'category', 'group', 'class',
-  'qty', 'quantity', 'balance', 'onhand', 'on hand', 'stock', 'available', 'count',
+  'qty', 'quantity', 'consumed', 'consumption', 'issued', 'issue', 'dispensed', 'usage',
+  'balance', 'onhand', 'on hand', 'stock', 'available', 'count',
   'uom', 'unit', 'pkg', 'pack', 'box',
   'price', 'cost', 'unit price', 'unit cost', 'sar', 'rate',
   'total', 'val', 'value', 'amount', 'extended',
   'date', 'expiry', 'exp', 'batch', 'lot', 'serial',
   'wh', 'warehouse', 'store', 'loc', 'location', 'depot',
-  'grn', 'pr', 'po', 'supplier', 'vendor', 'dept', 'department', 'ward'
+  'grn', 'pr', 'po', 'supplier', 'vendor', 'dept', 'department', 'ward',
+  'الكمية', 'الصنف', 'كود', 'الوحدة', 'السعر', 'التاريخ',
 ];
+
+export interface SmartNumberParseResult {
+  value: number | null;
+  isEmptyOrDash: boolean;
+}
+
+const ARABIC_DIGIT_MAP: Record<string, string> = {
+  '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4',
+  '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9',
+  '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4',
+  '۵': '5', '۶': '6', '۷': '7', '۸': '8', '۹': '9',
+};
+
+/**
+ * Robustly parses quantities and monetary values from Excel cells:
+ * - Preserves native JS numbers cleanly
+ * - Treats empty cells, "-", "—", "N/A", "nil" as numeric 0
+ * - Supports comma/space/NBSP thousands separators, accounting negatives (150) / 150-,
+ *   Arabic-Indic numerals (٠١٢٣٤٥٦٧٨٩), and unit/currency suffixes (e.g. "150 Box", "250 EA", "SAR 45.00")
+ */
+export function parseSmartNumber(rawVal: any): SmartNumberParseResult {
+  if (typeof rawVal === 'number') {
+    return Number.isFinite(rawVal)
+      ? { value: rawVal, isEmptyOrDash: false }
+      : { value: null, isEmptyOrDash: false };
+  }
+
+  if (rawVal === undefined || rawVal === null || typeof rawVal === 'boolean') {
+    return { value: 0, isEmptyOrDash: true };
+  }
+
+  if (rawVal instanceof Date) {
+    return { value: null, isEmptyOrDash: false };
+  }
+
+  let str = String(rawVal)
+    .replace(/[٠-٩۰-۹]/g, (ch) => ARABIC_DIGIT_MAP[ch] ?? ch)
+    .replace(/\u066B/g, '.') // Arabic decimal separator
+    .replace(/\u066C/g, ',') // Arabic thousands separator
+    .replace(/[\u00A0\u200E\u200F\u202A-\u202E\r\n\t]+/g, ' ')
+    .trim();
+
+  if (
+    str === '' ||
+    /^[-–—−]+$/.test(str) ||
+    /^(n\/?a|nil|null|none|nan|\.+)$/i.test(str)
+  ) {
+    return { value: 0, isEmptyOrDash: true };
+  }
+
+  // Reject explicit date strings so dates are never misparsed as numbers
+  if (
+    /^\d{4}[-/]\d{1,2}[-/]\d{1,2}(?:\s|$|T)/.test(str) ||
+    /^\d{1,2}[-/]\d{1,2}[-/]\d{2,4}(?:\s|$)/.test(str)
+  ) {
+    return { value: null, isEmptyOrDash: false };
+  }
+
+  let isNegative = false;
+  // Accounting negative in parentheses: (1,250.50)
+  const parenMatch = str.match(/^\((.+)\)$/);
+  if (parenMatch) {
+    isNegative = true;
+    str = parenMatch[1].trim();
+  }
+
+  // Trailing minus sign: 1,250-
+  if (!isNegative && /^.+-$/.test(str) && /\d/.test(str)) {
+    isNegative = true;
+    str = str.slice(0, -1).trim();
+  }
+
+  // Strip common currency codes or UOM suffixes/prefixes when digits are present
+  if (/\d/.test(str)) {
+    str = str
+      .replace(/^(?:SAR|SR|USD|AED|QTY|QUANTITY|NO|NOS)\s*[:.]?\s*/i, '')
+      .replace(
+        /\s*(?:EA|EACH|PCS?|PIECES?|BOX(?:ES)?|BX|VIALS?|TABS?|TABLETS?|CAPS?|CAPSULES?|PACKS?|PKTS?|PACKETS?|UNITS?|BTLS?|BOTTLES?|AMPS?|AMPOULES?|KITS?|ROLLS?|BAGS?|PENS?|TUBES?|PAIRS?|SETS?|NOS?|SYR(?:INGES?)?|SACHETS?|CANS?|TIN|SAR|SR|حبة|حبه|علبة|علبه|كرتون|عبوة)\.?$/i,
+        ''
+      )
+      .trim();
+  }
+
+  // Remove internal spaces between digits (space-thousands separator like "1 250.50")
+  const compact = str.replace(/(?<=\d)\s+(?=\d)/g, '').replace(/\s+/g, '');
+
+  const normalizeSeparators = (token: string): string => {
+    if (token.includes('.') && token.includes(',')) {
+      if (token.lastIndexOf(',') > token.lastIndexOf('.')) {
+        // European 1.250,50
+        return token.replace(/\./g, '').replace(',', '.');
+      }
+      // Standard 1,250.50
+      return token.replace(/,/g, '');
+    }
+    if (token.includes(',') && !token.includes('.')) {
+      // Check if comma is clearly a decimal separator (single comma with 1-2 trailing digits, e.g. "12,5" or "12,50")
+      if (/^[+-]?\d+,\d{1,2}$/.test(token)) {
+        return token.replace(',', '.');
+      }
+      return token.replace(/,/g, '');
+    }
+    return token;
+  };
+
+  const normalized = normalizeSeparators(compact);
+  if (/^[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?$/i.test(normalized)) {
+    const num = Number(normalized);
+    if (Number.isFinite(num)) {
+      const signed = isNegative ? -Math.abs(num) : num;
+      return { value: signed === 0 ? 0 : signed, isEmptyOrDash: false };
+    }
+  }
+
+  // Last-resort extraction for cells like "500 (Box)" or "~1,200" with exactly one numeric token
+  const matches = str.match(/[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?/g);
+  if (matches && matches.length === 1 && !/[/-]\d/.test(str)) {
+    const parsed = Number(normalizeSeparators(matches[0]));
+    if (Number.isFinite(parsed)) {
+      const signed = isNegative ? -Math.abs(parsed) : parsed;
+      return { value: signed === 0 ? 0 : signed, isEmptyOrDash: false };
+    }
+  }
+
+  return { value: null, isEmptyOrDash: false };
+}
+
+function formatDateYMD(date: Date): string {
+  if (isNaN(date.getTime())) return '';
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function readWorksheetCell(cell: XLSX.CellObject | undefined): any {
+  if (!cell || cell.t === 'z' || cell.t === 'e') return '';
+
+  // True Date object (via cellDates: true)
+  if (cell.v instanceof Date || cell.t === 'd') {
+    const d = cell.v instanceof Date ? cell.v : new Date(cell.v as any);
+    if (!isNaN(d.getTime())) {
+      return formatDateYMD(d);
+    }
+    return cell.w ? String(cell.w).trim() : '';
+  }
+
+  // True Excel numeric cell -> preserve exact number (avoid raw:false turning 0 into "-" or narrow cells into "###")
+  if (cell.t === 'n' && typeof cell.v === 'number' && Number.isFinite(cell.v)) {
+    // Handle numeric Excel date serials that kept t='n' with a date number format
+    if (
+      cell.z &&
+      typeof cell.z === 'string' &&
+      /[dmy]/i.test(cell.z) &&
+      !/[#0]\.[0#]/.test(cell.z) &&
+      cell.w &&
+      /\d{1,4}[/-]\d{1,2}[/-]\d{1,4}/.test(cell.w)
+    ) {
+      return String(cell.w).trim();
+    }
+    // Strip tiny IEEE-754 floating point dust (e.g. 12.300000000000001 -> 12.3)
+    const cleanNum = Number(cell.v.toPrecision(14));
+    return Object.is(cleanNum, -0) ? 0 : cleanNum;
+  }
+
+  if (cell.t === 'b') {
+    return Boolean(cell.v);
+  }
+
+  const text = cell.v !== undefined && cell.v !== null ? String(cell.v) : String(cell.w || '');
+  return text.replace(/[\r\n\u00A0]+/g, ' ').trim();
+}
 
 /**
  * Ensures that a worksheet's !ref range encompasses ALL cells present in the sheet.
@@ -105,8 +279,9 @@ function fixWorksheetRange(worksheet: XLSX.WorkSheet): void {
 /**
  * Robustly parses a worksheet:
  * 1. Expands !ref range if ERP export truncated the range to 10 rows
- * 2. Scans for the true header row (skipping title/metadata banners)
- * 3. Converts all subsequent rows into structured objects (hundreds or thousands of records)
+ * 2. Reads raw cell values directly (preserving true numbers instead of formatted "-" / "###")
+ * 3. Scans for the true header row (skipping title/metadata banners)
+ * 4. Converts all subsequent rows into structured objects
  */
 function extractRowsFromWorksheet(worksheet: XLSX.WorkSheet): {
   headers: string[];
@@ -120,47 +295,80 @@ function extractRowsFromWorksheet(worksheet: XLSX.WorkSheet): {
   // 1. Fix truncated !ref range
   fixWorksheetRange(worksheet);
 
-  // 2. Read as 2D array of rows
-  const raw2D: any[][] = XLSX.utils.sheet_to_json(worksheet, {
-    header: 1,
-    defval: '',
-    blankrows: false,
-    raw: false,
-    dateNF: 'yyyy-mm-dd',
-  });
-
-  if (!raw2D || raw2D.length === 0) {
+  const ref = worksheet['!ref'];
+  if (!ref) {
     return { headers: [], allRows: [], totalRows: 0 };
   }
 
-  // 3. Find the real header row by scoring the first 25 rows
+  const range = XLSX.utils.decode_range(ref);
+  const raw2D: any[][] = [];
+
+  // 2. Read cell-by-cell preserving numeric & date accuracy
+  for (let r = range.s.r; r <= range.e.r; r++) {
+    const rowArr: any[] = [];
+    let hasValue = false;
+    for (let c = range.s.c; c <= range.e.c; c++) {
+      const addr = XLSX.utils.encode_cell({ r, c });
+      const val = readWorksheetCell(worksheet[addr]);
+      rowArr.push(val);
+      if (val !== '' && val !== undefined && val !== null) {
+        hasValue = true;
+      }
+    }
+    if (hasValue) {
+      raw2D.push(rowArr);
+    }
+  }
+
+  if (raw2D.length === 0) {
+    return { headers: [], allRows: [], totalRows: 0 };
+  }
+
+  // 3. Find the real header row by scoring the first 25 non-empty rows
   let bestHeaderRowIndex = 0;
-  let bestScore = -1;
+  let bestScore = -Infinity;
   const maxScanRows = Math.min(raw2D.length, 25);
 
   for (let r = 0; r < maxScanRows; r++) {
     const row = raw2D[r];
     if (!Array.isArray(row) || row.length === 0) continue;
 
-    // Count non-empty text cells
-    const textCells = row.map((c) => String(c || '').trim()).filter((c) => c !== '');
-    if (textCells.length === 0) continue;
+    const nonEmptyCells = row.filter((c) => c !== '' && c !== null && c !== undefined);
+    if (nonEmptyCells.length < 2) continue;
 
-    // Score based on count of valid column titles and ERP keyword matches
-    let score = textCells.length;
-    let keywordMatches = 0;
+    let score = 0;
+    let textLabelCount = 0;
 
-    textCells.forEach((cell) => {
-      const lower = cell.toLowerCase().replace(/[^a-z0-9]/g, '');
-      if (ERP_HEADER_KEYWORDS.some((kw) => lower.includes(kw.replace(/[^a-z0-9]/g, '')))) {
-        keywordMatches += 3;
+    nonEmptyCells.forEach((cell) => {
+      if (typeof cell === 'number') {
+        score -= 2; // Data rows have numbers; headers don't
+        return;
+      }
+      const str = String(cell).trim();
+      if (/^[-+]?[\d,.\s]+$/.test(str)) {
+        score -= 1;
+        return;
+      }
+      if (str.length > 60) {
+        score -= 1; // Long report title/notes banner
+        return;
+      }
+
+      textLabelCount++;
+      score += 2;
+
+      const lower = str.toLowerCase();
+      const lowerAlphaNum = lower.replace(/[^a-z0-9\u0600-\u06FF]/g, '');
+      const hasKw = ERP_HEADER_KEYWORDS.some((kw) => {
+        const cleanKw = kw.toLowerCase().replace(/[^a-z0-9\u0600-\u06FF]/g, '');
+        return cleanKw.length >= 2 && (lowerAlphaNum.includes(cleanKw) || lower.includes(kw));
+      });
+      if (hasKw) {
+        score += 4;
       }
     });
 
-    score += keywordMatches;
-
-    // A row with multiple distinct columns and keyword matches is very likely the header
-    if (score > bestScore && textCells.length >= 2) {
+    if (textLabelCount >= 2 && score > bestScore) {
       bestScore = score;
       bestHeaderRowIndex = r;
     }
@@ -172,7 +380,7 @@ function extractRowsFromWorksheet(worksheet: XLSX.WorkSheet): {
   const seenHeaders = new Set<string>();
 
   rawHeaderRow.forEach((cellVal: any, colIdx: number) => {
-    let headerName = String(cellVal || '').trim();
+    let headerName = String(cellVal ?? '').replace(/[\r\n\u00A0]+/g, ' ').trim();
     if (!headerName) {
       headerName = `Column_${colIdx + 1}`;
     }
@@ -194,14 +402,19 @@ function extractRowsFromWorksheet(worksheet: XLSX.WorkSheet): {
     const rowData = raw2D[r];
     if (!Array.isArray(rowData)) continue;
 
-    // Check if row has any non-empty data
-    const hasData = rowData.some((val) => val !== null && val !== undefined && String(val).trim() !== '');
+    const hasData = rowData.some(
+      (val) => val !== null && val !== undefined && (typeof val === 'number' || String(val).trim() !== '')
+    );
     if (!hasData) continue;
 
     const rowObj: Record<string, any> = {};
     headers.forEach((header, colIdx) => {
       const val = rowData[colIdx];
-      rowObj[header] = val !== undefined && val !== null ? String(val).trim() : '';
+      if (typeof val === 'number') {
+        rowObj[header] = val;
+      } else {
+        rowObj[header] = val !== undefined && val !== null ? String(val).trim() : '';
+      }
     });
 
     allRows.push(rowObj);
@@ -219,7 +432,7 @@ function extractRowsFromWorksheet(worksheet: XLSX.WorkSheet): {
  */
 export async function parseExcelFile(file: File): Promise<ParsedSheetData> {
   const data = await file.arrayBuffer();
-  // Support .xlsx, .xls (BIFF8), .xls (HTML tables), and XML spreadsheets
+  // Support .xlsx, .xls (BIFF8), .xls (HTML tables), .csv, and XML spreadsheets
   const workbook = XLSX.read(data, { type: 'array', cellDates: true, dense: false });
 
   if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
@@ -282,30 +495,138 @@ export function getSheetData(workbook: XLSX.WorkBook, sheetName: string): {
   };
 }
 
+function normalizeHeaderTokens(text: string): { clean: string; words: string[] } {
+  const spaced = text
+    .toLowerCase()
+    .replace(/[_/\\|()-]+/g, ' ')
+    .replace(/[^\w\s\u0600-\u06FF]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return {
+    clean: spaced.replace(/\s+/g, ''),
+    words: spaced ? spaced.split(' ') : [],
+  };
+}
+
 /**
- * Heuristic/rule-based column auto-mapping based on aliases
+ * Scored, collision-free 1-to-1 heuristic column auto-mapping
  */
-export function autoMapColumns(headers: string[]): ColumnMappingResult {
+export function autoMapColumns(headers: string[], reportType?: ReportType): ColumnMappingResult {
   const mapping: ColumnMappingResult = {};
-
-  headers.forEach((header) => {
-    const clean = header.toLowerCase().replace(/[^a-z0-9]/g, '');
-    let matchedField: StandardField | 'ignore' = 'ignore';
-
-    for (const def of STANDARD_FIELDS_DICTIONARY) {
-      const match = def.aliases.some((alias) => {
-        const cleanAlias = alias.toLowerCase().replace(/[^a-z0-9]/g, '');
-        return clean === cleanAlias || clean.includes(cleanAlias) || cleanAlias.includes(clean);
-      });
-      if (match) {
-        matchedField = def.key;
-        break;
-      }
-    }
-    mapping[header] = matchedField;
+  headers.forEach((h) => {
+    mapping[h] = 'ignore';
   });
 
+  interface CandidateMatch {
+    header: string;
+    field: StandardField;
+    score: number;
+  }
+
+  const candidates: CandidateMatch[] = [];
+
+  headers.forEach((header) => {
+    const { clean, words } = normalizeHeaderTokens(header);
+    if (!clean) return;
+
+    const looksLikeCost = words.some((w) => ['cost', 'price', 'rate', 'sar', 'value', 'amount'].includes(w));
+    const looksLikeQty = words.some((w) =>
+      ['qty', 'quantity', 'consumed', 'consumption', 'issued', 'dispensed', 'usage', 'balance', 'stock', 'الكمية', 'كمية', 'الاستهلاك'].includes(w)
+    );
+    const looksLikeDept = words.some((w) => ['dept', 'department', 'ward', 'clinic', 'القسم'].includes(w));
+
+    STANDARD_FIELDS_DICTIONARY.forEach((def) => {
+      // Collision guards
+      if (def.key === 'unit' && (looksLikeCost || looksLikeQty)) return;
+      if (def.key === 'category' && looksLikeDept) return;
+      if (def.key === 'itemCode' && (words.includes('sno') || clean === 'sn' || clean === 'no')) return;
+
+      let bestFieldScore = 0;
+
+      def.aliases.forEach((alias) => {
+        const { clean: cleanAlias, words: aliasWords } = normalizeHeaderTokens(alias);
+        if (!cleanAlias) return;
+
+        let score = 0;
+        if (clean === cleanAlias) {
+          score = 1000 + cleanAlias.length;
+        } else if (
+          aliasWords.length > 0 &&
+          aliasWords.every((aw) => words.includes(aw))
+        ) {
+          score = 500 + aliasWords.length * 25 + cleanAlias.length;
+        } else if (cleanAlias.length >= 4 && clean.includes(cleanAlias)) {
+          score = 220 + cleanAlias.length * 3;
+        } else if (clean.length >= 5 && cleanAlias.includes(clean) && words.every((w) => w.length >= 4)) {
+          score = 120 + clean.length * 2;
+        }
+
+        if (score > 0 && def.key === 'quantity' && reportType === 'consumption') {
+          if (/consum|issu|dispens|usage|quantity|qty|الكمية|الاستهلاك/.test(cleanAlias)) {
+            score += 80;
+          }
+        }
+
+        if (score > bestFieldScore) {
+          bestFieldScore = score;
+        }
+      });
+
+      // Fallback recognition for headers like "OCT CONSUMPTION" or "MONTHLY CONSUMPTION QTY"
+      if (def.key === 'quantity' && bestFieldScore < 500 && looksLikeQty) {
+        bestFieldScore = Math.max(bestFieldScore, 450);
+      }
+
+      if (bestFieldScore > 0) {
+        candidates.push({ header, field: def.key, score: bestFieldScore });
+      }
+    });
+  });
+
+  // Sort highest-confidence matches first and assign 1-to-1
+  candidates.sort((a, b) => b.score - a.score);
+  const usedHeaders = new Set<string>();
+  const usedFields = new Set<StandardField>();
+
+  for (const c of candidates) {
+    if (usedHeaders.has(c.header) || usedFields.has(c.field)) continue;
+    mapping[c.header] = c.field;
+    usedHeaders.add(c.header);
+    usedFields.add(c.field);
+  }
+
   return mapping;
+}
+
+/**
+ * Detects Excel footer summary/total rows (e.g. "Total", "Grand Total", "Sub Total", "الإجمالي")
+ * or completely blank item rows that should not cause validation errors or double-count totals.
+ */
+function isSummaryOrEmptyRow(
+  row: Record<string, any>,
+  standardToSource: Partial<Record<StandardField, string>>
+): boolean {
+  const codeSrc = standardToSource['itemCode'];
+  const descSrc = standardToSource['itemDescription'];
+  const codeVal = codeSrc ? String(row[codeSrc] ?? '').trim() : '';
+  const descVal = descSrc ? String(row[descSrc] ?? '').trim() : '';
+
+  const totalPattern = /^(grand\s*)?(total|sub\s*-?\s*total|sum|overall|net\s*total|الإجمالي|المجموع|الجملة)s?[:\s]*$/i;
+
+  if (totalPattern.test(codeVal) || totalPattern.test(descVal)) {
+    return true;
+  }
+
+  // If itemCode is mapped and empty, check if any text cell says Total / Grand Total or if all text metadata is empty
+  if (codeSrc && !codeVal) {
+    const anyTotalMarker = Object.values(row).some(
+      (v) => typeof v === 'string' && /^(grand\s*total|sub\s*-?\s*total|total\b|الإجمالي|المجموع)/i.test(v.trim())
+    );
+    if (anyTotalMarker) return true;
+    if (!descVal) return true;
+  }
+
+  return false;
 }
 
 /**
@@ -340,10 +661,10 @@ export function validateImportData(
     });
   });
 
-  // Inverse mapping: StandardField -> source header
+  // Inverse mapping: StandardField -> source header (keep first mapped if duplicated manually)
   const standardToSource: Partial<Record<StandardField, string>> = {};
   for (const [sourceHeader, standardField] of Object.entries(columnMapping)) {
-    if (standardField !== 'ignore') {
+    if (standardField !== 'ignore' && !standardToSource[standardField]) {
       standardToSource[standardField] = sourceHeader;
     }
   }
@@ -357,8 +678,8 @@ export function validateImportData(
   const getRowNum = (row: Record<string, any>, f: StandardField, fallback = 0): number => {
     const src = standardToSource[f];
     if (!src || row[src] === undefined || row[src] === null) return fallback;
-    const n = parseFloat(String(row[src]).replace(/,/g, ''));
-    return isNaN(n) ? fallback : n;
+    const parsed = parseSmartNumber(row[src]);
+    return parsed.value !== null ? parsed.value : fallback;
   };
 
   // Tracking structures for smart multi-batch and multi-UOM aggregation
@@ -366,14 +687,22 @@ export function validateImportData(
   const itemUomsMap = new Map<string, Set<string>>();
   const seenExactRecords = new Set<string>();
 
+  let validatedRowCount = 0;
   let cleanRowCount = 0;
   let rowsWithErrorsCount = 0;
   let rowsWithWarningsCount = 0;
+  let skippedSummaryRows = 0;
   const flaggedUomItems = new Set<string>();
   const convertedUomItems = new Set<string>();
 
-  // Validate every single row
+  // Validate every data row
   rows.forEach((row, idx) => {
+    if (isSummaryOrEmptyRow(row, standardToSource)) {
+      skippedSummaryRows++;
+      return;
+    }
+
+    validatedRowCount++;
     const rowNum = idx + 2; // 1-based index accounting for header row
     let rowHasError = false;
     let rowHasWarning = false;
@@ -397,12 +726,12 @@ export function validateImportData(
       rowHasError = true;
     }
 
-    // 2. Quantity Check
+    // 2. Quantity Check (supports numbers, formatted strings, Arabic digits, units, dashes/blanks as 0)
     const qtyHeader = standardToSource['quantity'];
     if (qtyHeader) {
       const rawVal = row[qtyHeader];
-      const numVal = parseFloat(String(rawVal).replace(/,/g, ''));
-      if (isNaN(numVal)) {
+      const parsedQty = parseSmartNumber(rawVal);
+      if (parsedQty.value === null) {
         issues.push({
           type: 'error',
           rowNumber: rowNum,
@@ -410,12 +739,12 @@ export function validateImportData(
           message: `Row ${rowNum}: Quantity "${rawVal}" is not a valid number.`,
         });
         rowHasError = true;
-      } else if (numVal < 0) {
+      } else if (parsedQty.value < 0) {
         issues.push({
           type: 'warning',
           rowNumber: rowNum,
           field: 'quantity',
-          message: `Row ${rowNum}: Negative quantity (${numVal}) for item "${itemCode}". Please verify return/credit transaction.`,
+          message: `Row ${rowNum}: Negative quantity (${parsedQty.value}) for item "${itemCode}". Please verify return/credit transaction.`,
         });
         rowHasWarning = true;
       }
@@ -423,7 +752,6 @@ export function validateImportData(
 
     // 3. Multi-batch tracking & Exact duplicate detection
     if (itemCode) {
-      // Track batch numbers for this item
       if (!itemBatchCountMap.has(itemCode)) {
         itemBatchCountMap.set(itemCode, new Set());
       }
@@ -431,7 +759,6 @@ export function validateImportData(
         itemBatchCountMap.get(itemCode)!.add(batchNo);
       }
 
-      // Track UOMs for this item
       if (!itemUomsMap.has(itemCode)) {
         itemUomsMap.set(itemCode, new Set());
       }
@@ -439,7 +766,6 @@ export function validateImportData(
         itemUomsMap.get(itemCode)!.add(normalizeUOMName(uom));
       }
 
-      // Exact Duplicate Check: Same itemCode + batchNumber + expiry + warehouse + UOM + quantity
       const exactKey = `${itemCode}__${batchNo}__${expiry}__${wh}__${uom}__${getRowNum(row, 'quantity')}`;
       if (seenExactRecords.has(exactKey)) {
         issues.push({
@@ -453,7 +779,6 @@ export function validateImportData(
         seenExactRecords.add(exactKey);
       }
 
-      // Check UOM Conversion viability if item has multiple units or name pattern
       const namePattern = detectNameConversionFactor(itemDesc);
       if (namePattern) {
         convertedUomItems.add(itemCode);
@@ -479,9 +804,9 @@ export function validateImportData(
 
     // 5. Unit Cost check
     const costHeader = standardToSource['unitCost'];
-    if (costHeader && row[costHeader] !== undefined && row[costHeader] !== '') {
-      const costVal = parseFloat(String(row[costHeader]).replace(/,/g, ''));
-      if (isNaN(costVal) || costVal < 0) {
+    if (costHeader && row[costHeader] !== undefined && String(row[costHeader]).trim() !== '') {
+      const parsedCost = parseSmartNumber(row[costHeader]);
+      if (parsedCost.value === null || parsedCost.value < 0) {
         issues.push({
           type: 'warning',
           rowNumber: rowNum,
@@ -501,12 +826,18 @@ export function validateImportData(
     }
   });
 
+  if (skippedSummaryRows > 0) {
+    issues.unshift({
+      type: 'warning',
+      message: `Automatically excluded ${skippedSummaryRows} blank or summary/total footer row(s) to prevent double counting.`,
+    });
+  }
+
   // Check multi-UOM items for missing conversion factors
   itemUomsMap.forEach((uomSet, itemCode) => {
     if (uomSet.size > 1) {
-      // Find candidate base unit
       const uomArray = Array.from(uomSet);
-      let baseUnit = uomArray.find(isBaseUnit) || uomArray[uomArray.length - 1];
+      const baseUnit = uomArray.find(isBaseUnit) || uomArray[uomArray.length - 1];
 
       uomArray.forEach((unit) => {
         if (unit.toLowerCase() !== baseUnit.toLowerCase()) {
@@ -542,12 +873,12 @@ export function validateImportData(
   });
 
   const hasFatalErrors = missingRequired.length > 0 || rowsWithErrorsCount > 0;
-  const successfullyImported = rows.length - rowsWithErrorsCount;
+  const successfullyImported = Math.max(0, validatedRowCount - rowsWithErrorsCount);
 
   return {
     isValid: !hasFatalErrors,
     totalRowsRead: rows.length,
-    totalRowsValidated: rows.length,
+    totalRowsValidated: validatedRowCount,
     cleanRows: cleanRowCount,
     rowsWithErrors: rowsWithErrorsCount,
     rowsWithWarnings: rowsWithWarningsCount,
@@ -555,13 +886,14 @@ export function validateImportData(
     multiBatchItemsCount,
     uomConvertedItemsCount: convertedUomItems.size,
     uomConversionRequiredCount: flaggedUomItems.size,
-    issues: issues.slice(0, 100), // Show up to 100 detailed audit issues in UI
+    issues: issues.slice(0, 100),
     missingRequiredFields: missingRequired,
   };
 }
 
 /**
  * Normalizes ALL validated rows into structured records while maintaining batch-level traceability
+ * and guaranteeing finite numeric types for all quantity and value fields.
  */
 export function normalizeExcelData(
   rows: Record<string, any>[],
@@ -579,7 +911,7 @@ export function normalizeExcelData(
 } {
   const standardToSource: Partial<Record<StandardField, string>> = {};
   for (const [sourceHeader, standardField] of Object.entries(columnMapping)) {
-    if (standardField !== 'ignore') {
+    if (standardField !== 'ignore' && !standardToSource[standardField]) {
       standardToSource[standardField] = sourceHeader;
     }
   }
@@ -587,28 +919,35 @@ export function normalizeExcelData(
   const getRowStr = (row: Record<string, any>, f: StandardField, fallback = ''): string => {
     const src = standardToSource[f];
     if (!src || row[src] === undefined || row[src] === null) return fallback;
-    return String(row[src]).trim();
+    const s = String(row[src]).trim();
+    return s === '' ? fallback : s;
   };
 
   const getRowNum = (row: Record<string, any>, f: StandardField, fallback = 0): number => {
     const src = standardToSource[f];
     if (!src || row[src] === undefined || row[src] === null) return fallback;
-    const n = parseFloat(String(row[src]).replace(/,/g, ''));
-    return isNaN(n) ? fallback : n;
+    const parsed = parseSmartNumber(row[src]);
+    if (parsed.value !== null && Number.isFinite(parsed.value)) {
+      return parsed.isEmptyOrDash ? fallback : parsed.value;
+    }
+    return fallback;
   };
+
+  const validRows = rows.filter((r) => {
+    if (isSummaryOrEmptyRow(r, standardToSource)) return false;
+    return Boolean(getRowStr(r, 'itemCode'));
+  });
 
   // 1. STOCK SNAPSHOTS (Batch-aware & UOM-aware)
   if (reportType === 'stock_snapshot') {
-    // Determine base unit per item code across all rows
     const itemBaseUnitMap = new Map<string, string>();
-    rows.forEach((r) => {
+    validRows.forEach((r) => {
       const code = getRowStr(r, 'itemCode');
       const uom = normalizeUOMName(getRowStr(r, 'unit', 'Unit'));
       if (code) {
         if (!itemBaseUnitMap.has(code)) {
           itemBaseUnitMap.set(code, uom);
         } else {
-          // If current stored is not a base unit but incoming is a base unit, prefer base unit
           const current = itemBaseUnitMap.get(code)!;
           if (!isBaseUnit(current) && isBaseUnit(uom)) {
             itemBaseUnitMap.set(code, uom);
@@ -617,174 +956,164 @@ export function normalizeExcelData(
       }
     });
 
-    const snapshots: StockSnapshot[] = rows
-      .filter((r) => getRowStr(r, 'itemCode'))
-      .map((row, idx) => {
-        const itemCode = getRowStr(row, 'itemCode');
-        const itemDescription = getRowStr(row, 'itemDescription', itemCode);
-        const category = getRowStr(row, 'category', 'General Medical Supplies');
-        const rawQty = getRowNum(row, 'quantity', 0);
-        const originalUnit = normalizeUOMName(getRowStr(row, 'unit', 'Unit'));
-        const unitCost = getRowNum(row, 'unitCost', 0);
-        const totalStockValue = getRowNum(row, 'totalValue', rawQty * unitCost);
+    const snapshots: StockSnapshot[] = validRows.map((row, idx) => {
+      const itemCode = getRowStr(row, 'itemCode');
+      const itemDescription = getRowStr(row, 'itemDescription', itemCode);
+      const category = getRowStr(row, 'category', 'General Medical Supplies');
+      const rawQty = Number(getRowNum(row, 'quantity', 0)) || 0;
+      const originalUnit = normalizeUOMName(getRowStr(row, 'unit', 'Unit'));
+      const unitCost = Number(getRowNum(row, 'unitCost', 0)) || 0;
+      const totalStockValue = Number(getRowNum(row, 'totalValue', rawQty * unitCost)) || 0;
 
-        const batchNumber = getRowStr(row, 'batchNumber', `BATCH-${idx + 1}`);
-        const expiryDate = getRowStr(row, 'expiryDate', '');
+      const batchNumber = getRowStr(row, 'batchNumber', `BATCH-${idx + 1}`);
+      const expiryDate = getRowStr(row, 'expiryDate', '');
 
-        // Resolve UOM conversion into standardized base unit
-        const targetBaseUnit = itemBaseUnitMap.get(itemCode) || originalUnit;
-        const resolution = resolveUOMConversion(
-          itemCode,
-          itemDescription,
-          originalUnit,
-          targetBaseUnit,
-          rawQty,
-          uomRules
-        );
+      const targetBaseUnit = itemBaseUnitMap.get(itemCode) || originalUnit;
+      const resolution = resolveUOMConversion(
+        itemCode,
+        itemDescription,
+        originalUnit,
+        targetBaseUnit,
+        rawQty,
+        uomRules
+      );
 
-        let stockStatus: 'normal' | 'low_stock' | 'overstock' | 'stockout' = 'normal';
-        if (resolution.convertedQuantity <= 0) stockStatus = 'stockout';
-        else if (resolution.convertedQuantity < 300) stockStatus = 'low_stock';
-        else if (resolution.convertedQuantity > 6000) stockStatus = 'overstock';
+      let stockStatus: 'normal' | 'low_stock' | 'overstock' | 'stockout' = 'normal';
+      if (resolution.convertedQuantity <= 0) stockStatus = 'stockout';
+      else if (resolution.convertedQuantity < 300) stockStatus = 'low_stock';
+      else if (resolution.convertedQuantity > 6000) stockStatus = 'overstock';
 
-        return {
-          id: `IMP-SS-${reportId}-${idx}-${batchNumber}`,
-          reportId,
-          snapshotDate: getRowStr(row, 'transactionDate', new Date().toISOString().split('T')[0]),
-          reportingPeriod,
-          warehouseCode: getRowStr(row, 'warehouse', targetWarehouse),
-          itemCode,
-          itemDescription,
-          category,
-          quantityOnHand: rawQty, // original quantity
-          unit: originalUnit, // original unit
-          unitCost,
-          totalStockValue,
-          stockStatus,
-          batchNumber,
-          expiryDate,
-          convertedQuantity: resolution.convertedQuantity,
-          standardUnit: resolution.standardUnit,
-          conversionFactor: resolution.factor,
-          conversionStatus: resolution.status,
-        };
-      });
+      return {
+        id: `IMP-SS-${reportId}-${idx}-${batchNumber}`,
+        reportId,
+        snapshotDate: getRowStr(row, 'transactionDate', new Date().toISOString().split('T')[0]),
+        reportingPeriod,
+        warehouseCode: getRowStr(row, 'warehouse', targetWarehouse),
+        itemCode,
+        itemDescription,
+        category,
+        quantityOnHand: rawQty,
+        unit: originalUnit,
+        unitCost,
+        totalStockValue,
+        stockStatus,
+        batchNumber,
+        expiryDate,
+        convertedQuantity: Number(resolution.convertedQuantity) || 0,
+        standardUnit: resolution.standardUnit,
+        conversionFactor: resolution.factor,
+        conversionStatus: resolution.status,
+      };
+    });
 
     return { stockSnapshots: snapshots };
   }
 
   // 2. CONSUMPTION RECORDS
   if (reportType === 'consumption') {
-    const records: ConsumptionRecord[] = rows
-      .filter((r) => getRowStr(r, 'itemCode'))
-      .map((row, idx) => {
-        const itemCode = getRowStr(row, 'itemCode');
-        const itemDescription = getRowStr(row, 'itemDescription', itemCode);
-        const category = getRowStr(row, 'category', 'General Medical Supplies');
-        const quantityConsumed = getRowNum(row, 'quantity', 0);
-        const unitCost = getRowNum(row, 'unitCost', 0);
-        const totalVal = getRowNum(row, 'totalValue', quantityConsumed * unitCost);
+    const periodFallbackDate = reportingPeriod && reportingPeriod.match(/^\d{4}-\d{2}$/)
+      ? `${reportingPeriod}-28`
+      : new Date().toISOString().split('T')[0];
 
-        // Default date based on reportingPeriod (e.g. 2026-10 -> 2026-10-31)
-        const periodFallbackDate = reportingPeriod && reportingPeriod.match(/^\d{4}-\d{2}$/)
-          ? `${reportingPeriod}-28`
-          : new Date().toISOString().split('T')[0];
+    const records: ConsumptionRecord[] = validRows.map((row, idx) => {
+      const itemCode = getRowStr(row, 'itemCode');
+      const itemDescription = getRowStr(row, 'itemDescription', itemCode);
+      const category = getRowStr(row, 'category', 'General Medical Supplies');
+      const quantityConsumed = Number(getRowNum(row, 'quantity', 0)) || 0;
+      const unitCost = Number(getRowNum(row, 'unitCost', 0)) || 0;
+      const totalVal = Number(getRowNum(row, 'totalValue', quantityConsumed * unitCost)) || 0;
 
-        return {
-          id: `IMP-CON-${reportId}-${idx}`,
-          reportId,
-          transactionDate: getRowStr(row, 'transactionDate', periodFallbackDate),
-          reportingPeriod,
-          warehouseCode: getRowStr(row, 'warehouse', targetWarehouse),
-          itemCode,
-          itemDescription,
-          category,
-          department: getRowStr(row, 'department', 'General Hospital Services'),
-          quantityConsumed,
-          unit: normalizeUOMName(getRowStr(row, 'unit', 'Unit')),
-          unitCost,
-          totalConsumptionValue: totalVal,
-          issueVoucherNumber: getRowStr(row, 'prNumber', `VOUCH-${1000 + idx}`),
-        };
-      });
+      return {
+        id: `IMP-CON-${reportId}-${idx}`,
+        reportId,
+        transactionDate: getRowStr(row, 'transactionDate', periodFallbackDate),
+        reportingPeriod,
+        warehouseCode: getRowStr(row, 'warehouse', targetWarehouse),
+        itemCode,
+        itemDescription,
+        category,
+        department: getRowStr(row, 'department', 'General Hospital Services'),
+        quantityConsumed,
+        unit: normalizeUOMName(getRowStr(row, 'unit', 'Unit')),
+        unitCost,
+        totalConsumptionValue: totalVal,
+        issueVoucherNumber: getRowStr(row, 'prNumber', `VOUCH-${1000 + idx}`),
+      };
+    });
     return { consumptionRecords: records };
   }
 
   // 3. RECEIVING RECORDS (GRN)
   if (reportType === 'receiving_grn') {
-    const records: ReceivingRecord[] = rows
-      .filter((r) => getRowStr(r, 'itemCode'))
-      .map((row, idx) => {
-        const itemCode = getRowStr(row, 'itemCode');
-        const itemDescription = getRowStr(row, 'itemDescription', itemCode);
-        const quantityReceived = getRowNum(row, 'quantity', 0);
-        const unitCost = getRowNum(row, 'unitCost', 0);
-        const totalVal = getRowNum(row, 'totalValue', quantityReceived * unitCost);
+    const records: ReceivingRecord[] = validRows.map((row, idx) => {
+      const itemCode = getRowStr(row, 'itemCode');
+      const itemDescription = getRowStr(row, 'itemDescription', itemCode);
+      const quantityReceived = Number(getRowNum(row, 'quantity', 0)) || 0;
+      const unitCost = Number(getRowNum(row, 'unitCost', 0)) || 0;
+      const totalVal = Number(getRowNum(row, 'totalValue', quantityReceived * unitCost)) || 0;
 
-        return {
-          id: `IMP-REC-${reportId}-${idx}`,
-          reportId,
-          grnNumber: getRowStr(row, 'grnNumber', `GRN-IMP-${1000 + idx}`),
-          prNumber: getRowStr(row, 'prNumber', `PR-${1000 + idx}`),
-          receiptDate: getRowStr(row, 'transactionDate', new Date().toISOString().split('T')[0]),
-          reportingPeriod,
-          warehouseCode: getRowStr(row, 'warehouse', targetWarehouse),
-          itemCode,
-          itemDescription,
-          category: getRowStr(row, 'category', 'General Medical Supplies'),
-          supplierName: getRowStr(row, 'supplier', 'Authorized Hospital Distributor'),
-          quantityReceived,
-          unit: normalizeUOMName(getRowStr(row, 'unit', 'Unit')),
-          unitCost,
-          totalReceivedValue: totalVal,
-          inspectionStatus: 'Accepted',
-        };
-      });
+      return {
+        id: `IMP-REC-${reportId}-${idx}`,
+        reportId,
+        grnNumber: getRowStr(row, 'grnNumber', `GRN-IMP-${1000 + idx}`),
+        prNumber: getRowStr(row, 'prNumber', `PR-${1000 + idx}`),
+        receiptDate: getRowStr(row, 'transactionDate', new Date().toISOString().split('T')[0]),
+        reportingPeriod,
+        warehouseCode: getRowStr(row, 'warehouse', targetWarehouse),
+        itemCode,
+        itemDescription,
+        category: getRowStr(row, 'category', 'General Medical Supplies'),
+        supplierName: getRowStr(row, 'supplier', 'Authorized Hospital Distributor'),
+        quantityReceived,
+        unit: normalizeUOMName(getRowStr(row, 'unit', 'Unit')),
+        unitCost,
+        totalReceivedValue: totalVal,
+        inspectionStatus: 'Accepted',
+      };
+    });
     return { receivingRecords: records };
   }
 
   // 4. EXPIRY & BATCH RECORDS
   if (reportType === 'expiry_batch') {
     const now = new Date();
-    const records: ExpiryRecord[] = rows
-      .filter((r) => getRowStr(r, 'itemCode'))
-      .map((row, idx) => {
-        const itemCode = getRowStr(row, 'itemCode');
-        const itemDescription = getRowStr(row, 'itemDescription', itemCode);
-        const expiryDateStr = getRowStr(
-          row,
-          'expiryDate',
-          new Date(now.getTime() + 90 * 86400000).toISOString().split('T')[0]
-        );
-        const expiryDate = new Date(expiryDateStr);
-        const diffDays = Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 3600 * 24));
-        const quantityRemaining = getRowNum(row, 'quantity', 0);
-        const unitCost = getRowNum(row, 'unitCost', 0);
-        const totalVal = getRowNum(row, 'totalValue', quantityRemaining * unitCost);
+    const records: ExpiryRecord[] = validRows.map((row, idx) => {
+      const itemCode = getRowStr(row, 'itemCode');
+      const itemDescription = getRowStr(row, 'itemDescription', itemCode);
+      const expiryDateStr = getRowStr(
+        row,
+        'expiryDate',
+        new Date(now.getTime() + 90 * 86400000).toISOString().split('T')[0]
+      );
+      const expiryDate = new Date(expiryDateStr);
+      const diffDays = Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 3600 * 24));
+      const quantityRemaining = Number(getRowNum(row, 'quantity', 0)) || 0;
+      const unitCost = Number(getRowNum(row, 'unitCost', 0)) || 0;
+      const totalVal = Number(getRowNum(row, 'totalValue', quantityRemaining * unitCost)) || 0;
 
-        let riskLevel: 'expired' | 'critical_30' | 'warning_60' | 'notice_90' | 'safe' = 'safe';
-        if (diffDays <= 0) riskLevel = 'expired';
-        else if (diffDays <= 30) riskLevel = 'critical_30';
-        else if (diffDays <= 60) riskLevel = 'warning_60';
-        else if (diffDays <= 90) riskLevel = 'notice_90';
+      let riskLevel: 'expired' | 'critical_30' | 'warning_60' | 'notice_90' | 'safe' = 'safe';
+      if (diffDays <= 0) riskLevel = 'expired';
+      else if (diffDays <= 30) riskLevel = 'critical_30';
+      else if (diffDays <= 60) riskLevel = 'warning_60';
+      else if (diffDays <= 90) riskLevel = 'notice_90';
 
-        return {
-          id: `IMP-EXP-${reportId}-${idx}`,
-          reportId,
-          warehouseCode: getRowStr(row, 'warehouse', targetWarehouse),
-          itemCode,
-          itemDescription,
-          category: getRowStr(row, 'category', 'Pharmaceuticals'),
-          batchNumber: getRowStr(row, 'batchNumber', `BATCH-${idx + 1}`),
-          expiryDate: expiryDateStr,
-          daysUntilExpiry: diffDays,
-          quantityRemaining,
-          unit: normalizeUOMName(getRowStr(row, 'unit', 'Unit')),
-          unitCost,
-          totalValueAtRisk: totalVal,
-          riskLevel,
-        };
-      });
+      return {
+        id: `IMP-EXP-${reportId}-${idx}`,
+        reportId,
+        warehouseCode: getRowStr(row, 'warehouse', targetWarehouse),
+        itemCode,
+        itemDescription,
+        category: getRowStr(row, 'category', 'Pharmaceuticals'),
+        batchNumber: getRowStr(row, 'batchNumber', `BATCH-${idx + 1}`),
+        expiryDate: expiryDateStr,
+        daysUntilExpiry: diffDays,
+        quantityRemaining,
+        unit: normalizeUOMName(getRowStr(row, 'unit', 'Unit')),
+        unitCost,
+        totalValueAtRisk: totalVal,
+        riskLevel,
+      };
+    });
     return { expiryRecords: records };
   }
 
